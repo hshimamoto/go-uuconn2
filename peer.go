@@ -16,6 +16,11 @@ import (
     "github.com/hshimamoto/go-session"
 )
 
+type UDPMessage struct {
+    addr *net.UDPAddr
+    msg []byte
+}
+
 type LocalSocket struct {
     sock *net.UDPConn
     global string
@@ -23,6 +28,7 @@ type LocalSocket struct {
     retired bool
     dead bool
     m sync.Mutex
+    q_sendmsg chan UDPMessage
     // stats
     s_recv, s_recverr uint32
     s_send, s_senderr uint32
@@ -36,6 +42,7 @@ func NewLocalSocket() *LocalSocket {
     }
     s.sock = sock
     s.global = ""
+    s.q_sendmsg = make(chan UDPMessage, 64)
     return s
 }
 
@@ -60,19 +67,21 @@ func (s *LocalSocket)String() string {
 	    s.s_send, s.s_senderr, s.s_recv, s.s_recverr)
 }
 
-func (s *LocalSocket)SendTo(msg[]byte, remote *net.UDPAddr) {
-    if s.running == false {
-	s.s_senderr++
-	return
+func (s *LocalSocket)Sender() {
+    for s.running {
+	msg := <-s.q_sendmsg
+	if msg.addr != nil && len(msg.msg) > 0 {
+	    s.sock.WriteToUDP(msg.msg, msg.addr)
+	    s.s_send++
+	}
     }
-    //logrus.Infof("sendto %v from %s(%s)", remote, s.global, s.sock.LocalAddr())
-    s.sock.WriteToUDP(msg, remote)
-    s.s_send++
 }
 
 func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
     defer func() { s.dead = true } ()
     s.running = true
+    // start sender goroutine
+    go s.Sender()
     buf := make([]byte, 1500)
     for s.running {
 	// ReadFromUDP
@@ -90,6 +99,8 @@ func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
 	s.s_recv++
 	cb(s, addr, buf[:n])
     }
+    // stop sender
+    s.q_sendmsg <- UDPMessage{}
 }
 
 func (s *LocalSocket)Stop() {
@@ -314,7 +325,11 @@ func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
     p.m.Lock()
     defer p.m.Unlock()
     for _, sock := range p.lsocks {
-	sock.SendTo(msg, addr)
+	udpmsg := UDPMessage {
+	    addr: addr,
+	    msg: msg,
+	}
+	sock.q_sendmsg <- udpmsg
     }
 }
 
@@ -338,7 +353,11 @@ func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
     p.m.Lock()
     defer p.m.Unlock()
     for _, sock := range p.lsocks {
-	sock.SendTo(msg, addr)
+	udpmsg := UDPMessage {
+	    addr: addr,
+	    msg: msg,
+	}
+	sock.q_sendmsg <- udpmsg
     }
 }
 

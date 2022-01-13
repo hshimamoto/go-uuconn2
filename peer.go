@@ -103,6 +103,7 @@ type Stream struct {
 type Connection struct {
     remotes []string
     peerid uint32
+    hostname string
     lastProbe time.Time
     lastInform time.Time
     sockidx int
@@ -120,7 +121,7 @@ func NewConnection(peerid uint32) *Connection {
 func (c *Connection)String() string {
     c.m.Lock()
     defer c.m.Unlock()
-    return fmt.Sprintf("0x%x %v", c.peerid, c.remotes)
+    return fmt.Sprintf("0x%x %s %v", c.peerid, c.hostname, c.remotes)
 }
 
 func (c *Connection)Update(addr string) {
@@ -160,6 +161,7 @@ type Peer struct {
     s_udp uint32
     s_ignore uint32
     s_probe uint32
+    s_inform uint32
 }
 
 func NewPeer(laddr string) (*Peer, error) {
@@ -214,7 +216,9 @@ func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
 }
 
 func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
-    addrs := []string{}
+    // Inform Message
+    // |info|spid|dpid|hostname global...|
+    addrs := []string{p.hostname}
     p.m.Lock()
     for _, sock := range p.lsocks {
 	if sock.global != "" {
@@ -262,13 +266,24 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
     s.UpdateGlobal(hostname)
 }
 
+// Inform Message
+// |info|spid|dpid|hostname global...|
 func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    p.s_inform++
     remote := p.FindConnection(spid)
     if remote == nil {
 	// ignore
 	return
     }
     remotes := strings.Split(string(data), " ")
+    if len(remotes) < 2 {
+	// ignore
+	return
+    }
+    hostname := remotes[0]
+    // TODO avoid direct access
+    remote.hostname = hostname
+    remotes = remotes[1:]
     for _, r := range remotes {
 	remote.Update(r)
     }

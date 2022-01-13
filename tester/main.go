@@ -74,6 +74,8 @@ func Scenario() {
     // find inst1 addr
     addr1 := get_addr(info1)
     addr2 := get_addr(info2)
+    peerid1 := strings.Split(strings.Split(info1, "\n")[0], " ")[1]
+    peerid2 := strings.Split(strings.Split(info2, "\n")[0], " ")[1]
 
     logrus.Infof("addr1 = %s", addr1)
     logrus.Infof("addr2 = %s", addr2)
@@ -85,7 +87,24 @@ func Scenario() {
     // 1sec...
     time.Sleep(time.Second)
 
-    for i := 0; i < 10; i++ {
+    for i := 0; i < 5; i++ {
+	logrus.Infof("check %d/10", i+1)
+	// show inst1 INFO
+	api("localhost:8888", "INFO")
+	// show inst2 INFO
+	api("localhost:8889", "INFO")
+	// 1sec...
+	time.Sleep(time.Second)
+    }
+
+    logrus.Infof("adding localserv")
+
+    api("localhost:8888", "ADD 127.0.0.1:18888 " + peerid2 + ":127.0.0.1:22")
+    api("localhost:8889", "ADD 127.0.0.1:18889 " + peerid1 + ":127.0.0.1:22")
+    // 1sec...
+    time.Sleep(time.Second)
+
+    for i := 0; i < 5; i++ {
 	logrus.Infof("check %d/10", i+1)
 	// show inst1 INFO
 	api("localhost:8888", "INFO")

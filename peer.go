@@ -7,6 +7,7 @@ import (
     "math/rand"
     "net"
     "os"
+    "strconv"
     "strings"
     "sync"
     "time"
@@ -111,6 +112,53 @@ type Connection struct {
     m sync.Mutex
 }
 
+type LocalServer struct {
+    remote *Connection
+    laddr, raddr string
+    serv *session.Server
+    running bool
+}
+
+func NewLocalServer(laddr, raddr string, remote *Connection) (*LocalServer, error) {
+    ls := &LocalServer{
+	remote: remote,
+	laddr: laddr,
+	raddr: raddr,
+    }
+    serv, err := session.NewServer(laddr, func(conn net.Conn) {
+	ls.Handle_Session(conn)
+    })
+    if err != nil {
+	return nil, err
+    }
+    ls.serv = serv
+    return ls, nil
+}
+
+func (ls *LocalServer)String() string {
+    peerid := uint32(0)
+    if ls.remote != nil {
+	peerid = ls.remote.peerid
+    }
+    return fmt.Sprintf("localserver %s %s 0x%x", ls.laddr, ls.raddr, peerid)
+}
+
+func (ls *LocalServer)Handle_Session(lconn net.Conn) {
+    if ls.remote == nil {
+	return
+    }
+}
+
+func (ls *LocalServer)Run() {
+    ls.running = true
+    ls.serv.Run()
+}
+
+func (ls *LocalServer)Stop() {
+    ls.running = false
+    ls.serv.Stop()
+}
+
 func NewConnection(peerid uint32) *Connection {
     c := &Connection{
 	remotes: []string{},
@@ -153,6 +201,7 @@ type Peer struct {
     lsocks []*LocalSocket
     checkers []string
     conns []*Connection
+    lservs []*LocalServer
     serv *session.Server
     peerid uint32
     hostname string
@@ -204,6 +253,32 @@ func (p *Peer)FindConnection(peerid uint32) *Connection {
     c := NewConnection(peerid)
     p.conns = append(p.conns, c)
     return c
+}
+
+func (p *Peer)LookupConnection(name string) *Connection {
+    p.m.Lock()
+    defer p.m.Unlock()
+    for _, c := range p.conns {
+	if c.hostname == name {
+	    return c
+	}
+    }
+    // name is peerid
+    if name[0:2] == "0x" {
+	name = name[2:]
+    }
+    peerid64, err := strconv.ParseUint(name, 16, 32)
+    if err != nil {
+	return nil
+    }
+    peerid := uint32(peerid64)
+    for _, c := range p.conns {
+	if c.peerid == peerid {
+	    return c
+	}
+    }
+    logrus.Infof("Lookup: no name %s peerid 0x%x", name, peerid)
+    return nil
 }
 
 func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
@@ -353,6 +428,13 @@ func (p *Peer)API_handler(conn net.Conn) {
 	    resp += fmt.Sprintf("%s\n", c.String())
 	}
 	p.m.Unlock()
+	// local servers
+	resp += "local:\n"
+	p.m.Lock()
+	for _, serv := range p.lservs {
+	    resp += fmt.Sprintf("%s\n", serv.String())
+	}
+	p.m.Unlock()
 	// stats
 	resp += fmt.Sprintf("stats %d udp %d ignore\n", p.s_udp, p.s_ignore)
 	conn.Write([]byte(resp))
@@ -368,6 +450,36 @@ func (p *Peer)API_handler(conn net.Conn) {
 	}
 	// probe target to connect
 	p.ProbeTo(addr, 0)
+    case "ADD":
+	// need local and remote
+	if len(words) < 3 {
+	    conn.Write([]byte("Bad Request"))
+	    return
+	}
+	laddr := words[1]
+	// lookup remote first name:addr:port
+	r := strings.SplitN(words[2], ":", 2)
+	rname := r[0]
+	raddr := r[1]
+	remote := p.LookupConnection(rname)
+	if remote == nil {
+	    logrus.Infof("unknown remote %s", rname)
+	    resp := fmt.Sprintf("Unknown: %s", rname)
+	    conn.Write([]byte(resp))
+	    return
+	}
+	ls, err := NewLocalServer(laddr, raddr, remote)
+	if err != nil {
+	    logrus.Infof("NewLocalServer: %v", err)
+	    resp := fmt.Sprintf("Error: %v", err)
+	    conn.Write([]byte(resp))
+	    return
+	}
+	// start LocalServer here
+	go ls.Run()
+	p.m.Lock()
+	p.lservs = append(p.lservs, ls)
+	p.m.Unlock()
     case "CHECKER":
 	if len(words) == 1 {
 	    return
@@ -454,6 +566,10 @@ func (p *Peer)Run() {
     }
     time.Sleep(time.Second)
     p.serv.Stop()
+    // stop local servers
+    for _, serv := range p.lservs {
+	serv.Stop()
+    }
     // stop local sockets
     for _, sock := range p.lsocks {
 	sock.Stop()

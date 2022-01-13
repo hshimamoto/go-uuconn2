@@ -104,6 +104,7 @@ type Connection struct {
     remotes []string
     peerid uint32
     hostname string
+    startTime time.Time
     lastProbe time.Time
     lastInform time.Time
     sockidx int
@@ -114,6 +115,7 @@ func NewConnection(peerid uint32) *Connection {
     c := &Connection{
 	remotes: []string{},
 	peerid: peerid,
+	startTime: time.Now(),
     }
     return c
 }
@@ -121,7 +123,7 @@ func NewConnection(peerid uint32) *Connection {
 func (c *Connection)String() string {
     c.m.Lock()
     defer c.m.Unlock()
-    return fmt.Sprintf("0x%x %s %v", c.peerid, c.hostname, c.remotes)
+    return fmt.Sprintf("0x%x %s [%v] %v", c.peerid, c.hostname, time.Since(c.startTime), c.remotes)
 }
 
 func (c *Connection)Update(addr string) {

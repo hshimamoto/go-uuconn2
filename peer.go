@@ -1,0 +1,460 @@
+// MIT License Copyright(c) 2022 Hiroshi Shimamoto
+// vim: set sw=4 sts=4:
+package main
+import (
+    "encoding/binary"
+    "fmt"
+    "math/rand"
+    "net"
+    "os"
+    "strings"
+    "sync"
+    "time"
+
+    "github.com/sirupsen/logrus"
+    "github.com/hshimamoto/go-session"
+)
+
+type LocalSocket struct {
+    sock *net.UDPConn
+    global string
+    running bool
+    retired bool
+    dead bool
+    m sync.Mutex
+    // stats
+    s_recv, s_recverr uint32
+    s_send, s_senderr uint32
+}
+
+func NewLocalSocket() *LocalSocket {
+    s := &LocalSocket{}
+    sock, err := net.ListenUDP("udp", nil)
+    if err != nil {
+	return nil
+    }
+    s.sock = sock
+    s.global = ""
+    return s
+}
+
+func (s *LocalSocket)UpdateGlobal(global string) {
+    updated := false
+    old := ""
+    s.m.Lock()
+    if s.global != global {
+	old = s.global
+	s.global = global
+	updated = true
+    }
+    s.m.Unlock()
+    if updated {
+	logrus.Infof("update global %s to %s", old, global)
+    }
+}
+
+func (s *LocalSocket)String() string {
+    return fmt.Sprintf("localsocket %v %s %d %d %d %d",
+	    s.sock.LocalAddr(), s.global,
+	    s.s_send, s.s_senderr, s.s_recv, s.s_recverr)
+}
+
+func (s *LocalSocket)SendTo(msg[]byte, remote *net.UDPAddr) {
+    if s.running == false {
+	s.s_senderr++
+	return
+    }
+    //logrus.Infof("sendto %v from %s(%s)", remote, s.global, s.sock.LocalAddr())
+    s.sock.WriteToUDP(msg, remote)
+    s.s_send++
+}
+
+func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
+    defer func() { s.dead = true } ()
+    s.running = true
+    buf := make([]byte, 1500)
+    for s.running {
+	// ReadFromUDP
+	// TODO remove Deadline
+	s.sock.SetReadDeadline(time.Now().Add(time.Second))
+	n, addr, err := s.sock.ReadFromUDP(buf)
+	if n <= 0 || err != nil {
+	    if e, ok := err.(net.Error); ok && e.Timeout() {
+		continue
+	    }
+	    s.s_recverr++
+	    logrus.Infof("ReadFromUDP: %v", err)
+	    continue
+	}
+	s.s_recv++
+	cb(s, addr, buf[:n])
+    }
+}
+
+func (s *LocalSocket)Stop() {
+    s.running = false
+    s.retired = true
+}
+
+type Stream struct {
+    streamid uint32
+}
+
+type Connection struct {
+    remotes []string
+    peerid uint32
+    lastProbe time.Time
+    lastInform time.Time
+    sockidx int
+    m sync.Mutex
+}
+
+func NewConnection(peerid uint32) *Connection {
+    c := &Connection{
+	remotes: []string{},
+	peerid: peerid,
+    }
+    return c
+}
+
+func (c *Connection)String() string {
+    c.m.Lock()
+    defer c.m.Unlock()
+    return fmt.Sprintf("0x%x %v", c.peerid, c.remotes)
+}
+
+func (c *Connection)Update(addr string) {
+    c.m.Lock()
+    defer c.m.Unlock()
+    l := len(c.remotes)
+    if l < 1 || c.remotes[l-1] != addr {
+	c.remotes = append(c.remotes, addr)
+    }
+    // shrink
+    if l > 30 {
+	c.remotes = c.remotes[l-10:l]
+    }
+}
+
+func (c *Connection)Freshers() []string {
+    c.m.Lock()
+    defer c.m.Unlock()
+    l := len(c.remotes)
+    if l < 3 {
+	return c.remotes
+    }
+    return c.remotes[l-3:]
+}
+
+type Peer struct {
+    lsocks []*LocalSocket
+    checkers []string
+    conns []*Connection
+    serv *session.Server
+    peerid uint32
+    hostname string
+    running bool
+    lastCheck time.Time
+    m sync.Mutex
+    // stats
+    s_udp uint32
+    s_ignore uint32
+    s_probe uint32
+}
+
+func NewPeer(laddr string) (*Peer, error) {
+    p := &Peer{}
+    // create local API server
+    serv, err := session.NewServer(laddr, func(conn net.Conn) {
+	p.API_handler(conn)
+    })
+    if err != nil {
+	return nil, fmt.Errorf("NewServer: %v", err)
+    }
+    p.serv = serv
+    p.lsocks = []*LocalSocket{}
+    // start at most 3 sockets
+    for i := 0; i < 3; i++ {
+	s := NewLocalSocket()
+	if s != nil {
+	    p.lsocks = append(p.lsocks, s)
+	}
+    }
+    logrus.Infof("created %d local sockets", len(p.lsocks))
+    rand.Seed(time.Now().Unix() + int64(os.Getpid()))
+    p.peerid = rand.Uint32()
+    if hostname, err := os.Hostname(); err == nil {
+	p.hostname = hostname
+    }
+    return p, nil
+}
+
+func (p *Peer)FindConnection(peerid uint32) *Connection {
+    p.m.Lock()
+    defer p.m.Unlock()
+    for _, c := range p.conns {
+	if c.peerid == peerid {
+	    return c
+	}
+    }
+    c := NewConnection(peerid)
+    p.conns = append(p.conns, c)
+    return c
+}
+
+func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
+    msg := []byte(fmt.Sprintf("probSSSSDDDD%v", addr))
+    binary.LittleEndian.PutUint32(msg[4:], p.peerid)
+    binary.LittleEndian.PutUint32(msg[8:], dstpid)
+    p.m.Lock()
+    defer p.m.Unlock()
+    for _, sock := range p.lsocks {
+	sock.SendTo(msg, addr)
+    }
+}
+
+func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
+    addrs := []string{}
+    p.m.Lock()
+    for _, sock := range p.lsocks {
+	if sock.global != "" {
+	    addrs = append(addrs, sock.global)
+	}
+    }
+    p.m.Unlock()
+    if len(addrs) == 0 {
+	return
+    }
+    msg := []byte(fmt.Sprintf("infoSSSSDDDD%s", strings.Join(addrs, " ")))
+    binary.LittleEndian.PutUint32(msg[4:], p.peerid)
+    binary.LittleEndian.PutUint32(msg[8:], dstpid)
+    p.m.Lock()
+    defer p.m.Unlock()
+    for _, sock := range p.lsocks {
+	sock.SendTo(msg, addr)
+    }
+}
+
+func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    p.s_probe++
+    // TODO
+    if spid == dpid {
+	logrus.Infof("self communication")
+	// WILL BE IGNORED
+    }
+    // lookup spid?
+    remote := p.FindConnection(spid)
+    if remote != nil {
+	remote.Update(addr.String())
+    }
+    if dpid == 0 {
+	// recv probe request
+	// need to resp multi route
+	p.ProbeTo(addr, spid)
+	return
+    } else if dpid != p.peerid {
+	// not to me
+	return
+    }
+    // recv probe response
+    // data may contain global addr string
+    hostname := strings.TrimSpace(strings.Split(string(data), "\n")[0])
+    s.UpdateGlobal(hostname)
+}
+
+func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    remote := p.FindConnection(spid)
+    if remote == nil {
+	// ignore
+	return
+    }
+    remotes := strings.Split(string(data), " ")
+    for _, r := range remotes {
+	remote.Update(r)
+    }
+}
+
+func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
+    p.s_udp++
+    //logrus.Infof("recv %d bytes from %v on %v", len(msg), addr, s.sock.LocalAddr())
+    if msg[0] == 'P' {
+	// Probe? reuse v1 protocol
+	if len(msg) > 7 {
+	    w := strings.Split(string(msg), " ")
+	    // Probe addr
+	    s.UpdateGlobal(w[1])
+	}
+	return
+    }
+    // UDP Packet Format
+    // parse
+    // |code|src peer id|dst peer id|
+    if len(msg) < 16 {
+	// ignore
+	p.s_ignore++
+	return
+    }
+    code := msg[0:4]
+    spid := binary.LittleEndian.Uint32(msg[4:8])
+    dpid := binary.LittleEndian.Uint32(msg[8:12])
+    data := msg[12:]
+    switch string(code) {
+    case "prob": p.UDP_handler_Probe(s, addr, spid, dpid, data)
+    case "info": p.UDP_handler_Inform(s, addr, spid, dpid, data)
+    default:
+	logrus.Infof("msg code [%s] 0x%x 0x%x", code, spid, dpid)
+    }
+}
+
+func (p *Peer)API_handler(conn net.Conn) {
+    defer conn.Close()
+    buf := make([]byte, 256)
+    n, err := conn.Read(buf)
+    if n <= 0 {
+	logrus.Infof("API: Read: %v", err)
+	return
+    }
+    firstline := strings.Split(string(buf[:n]), "\n")[0]
+    req := strings.TrimSpace(firstline)
+    words := strings.Fields(req)
+    logrus.Infof("API: %v", words)
+    switch words[0] {
+    case "INFO":
+	resp := ""
+	resp += fmt.Sprintf("%s 0x%x\n", p.hostname, p.peerid)
+	// sockets
+	resp += "sockets:\n"
+	p.m.Lock()
+	for _, sock := range p.lsocks {
+	    resp += fmt.Sprintf("%s\n", sock.String())
+	}
+	p.m.Unlock()
+	// connections
+	resp += "connections:\n"
+	p.m.Lock()
+	for _, c := range p.conns {
+	    resp += fmt.Sprintf("%s\n", c.String())
+	}
+	p.m.Unlock()
+	// stats
+	resp += fmt.Sprintf("stats %d udp %d ignore\n", p.s_udp, p.s_ignore)
+	conn.Write([]byte(resp))
+    case "CONNECT":
+	// need target
+	if len(words) == 1 {
+	    return
+	}
+	addr, err := net.ResolveUDPAddr("udp", words[1])
+	if err != nil {
+	    logrus.Info("ResolveUDPAddr: %v", err)
+	    return
+	}
+	// probe target to connect
+	p.ProbeTo(addr, 0)
+    case "CHECKER":
+	if len(words) == 1 {
+	    return
+	}
+	// new checker?
+	hit := false
+	p.m.Lock()
+	for _, c := range p.checkers {
+	    if c == words[1] {
+		hit = true
+		break
+	    }
+	}
+	if ! hit {
+	    logrus.Infof("new checker: %s", words[1])
+	    p.checkers = append(p.checkers, words[1])
+	}
+	p.m.Unlock()
+    }
+}
+
+func (p *Peer)Housekeeper_Connection(c *Connection) {
+    remotes := c.Freshers()
+    now := time.Now()
+    if now.After(c.lastProbe.Add(time.Second * 10)) {
+	for _, r := range remotes {
+	    if addr, err := net.ResolveUDPAddr("udp", r); err == nil {
+		p.ProbeTo(addr, 0)
+	    }
+	}
+	c.lastProbe = now
+    }
+    if now.After(c.lastInform.Add(time.Minute)) {
+	for _, r := range remotes {
+	    if addr, err := net.ResolveUDPAddr("udp", r); err == nil {
+		p.InformTo(addr, p.peerid)
+	    }
+	}
+	c.lastInform = now
+    }
+}
+
+func (p *Peer)Housekeeper() {
+    for p.running {
+	// check sockets
+	p.m.Lock()
+	for _, sock := range p.lsocks {
+	    if sock.running == false && sock.dead == false {
+		// start local socket
+		go sock.Run(p.UDP_handler)
+	    }
+	}
+	p.m.Unlock()
+	// probe/inform connections
+	p.m.Lock()
+	conns := p.conns
+	p.m.Unlock()
+	for _, c := range conns {
+	    p.Housekeeper_Connection(c)
+	}
+	// checker?
+	if time.Now().After(p.lastCheck.Add(time.Minute)) {
+	    p.m.Lock()
+	    checkers := p.checkers
+	    p.m.Unlock()
+	    for _, ch := range checkers {
+		if addr, err := net.ResolveUDPAddr("udp", ch); err == nil {
+		    p.ProbeTo(addr, 0)
+		}
+		p.lastCheck = time.Now()
+	    }
+	}
+	time.Sleep(time.Second * 5)
+    }
+}
+
+func (p *Peer)Run() {
+    p.running = true
+    logrus.Infof("peer running")
+    go p.serv.Run()
+    go p.Housekeeper()
+    for p.running {
+	time.Sleep(time.Second)
+    }
+    time.Sleep(time.Second)
+    p.serv.Stop()
+    // stop local sockets
+    for _, sock := range p.lsocks {
+	sock.Stop()
+    }
+    logrus.Infof("peer stopped")
+}
+
+func peer(laddr string) {
+    logrus.Infof("start peer")
+    if laddr == "" {
+	logrus.Infof("no local addr")
+	return
+    }
+    p, err := NewPeer(laddr)
+    if err != nil {
+	logrus.Infof("NewPeer: %v", err)
+	return
+    }
+    p.Run()
+    logrus.Infof("end peer")
+}

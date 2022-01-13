@@ -114,59 +114,6 @@ type Connection struct {
     running bool
 }
 
-type LocalServer struct {
-    remote *Connection
-    laddr, raddr string
-    serv *session.Server
-    running bool
-    // stats
-    s_accept uint32
-}
-
-func NewLocalServer(laddr, raddr string, remote *Connection) (*LocalServer, error) {
-    ls := &LocalServer{
-	remote: remote,
-	laddr: laddr,
-	raddr: raddr,
-    }
-    serv, err := session.NewServer(laddr, func(conn net.Conn) {
-	ls.Handle_Session(conn)
-    })
-    if err != nil {
-	return nil, err
-    }
-    ls.serv = serv
-    return ls, nil
-}
-
-func (ls *LocalServer)String() string {
-    peerid := uint32(0)
-    if ls.remote != nil {
-	peerid = ls.remote.peerid
-    }
-    stats := fmt.Sprintf("%d", ls.s_accept)
-    return fmt.Sprintf("localserver %s %s 0x%x %s", ls.laddr, ls.raddr, peerid, stats)
-}
-
-func (ls *LocalServer)Handle_Session(lconn net.Conn) {
-    if ls.remote == nil {
-	return
-    }
-    ls.s_accept++
-    // try to send
-    ls.remote.q_sendmsg <- []byte("new session")
-}
-
-func (ls *LocalServer)Run() {
-    ls.running = true
-    ls.serv.Run()
-}
-
-func (ls *LocalServer)Stop() {
-    ls.running = false
-    ls.serv.Stop()
-}
-
 func NewConnection(peerid uint32) *Connection {
     c := &Connection{
 	remotes: []string{},
@@ -219,6 +166,59 @@ func (c *Connection)Run() {
 func (c *Connection)Stop() {
     c.running = false
     c.q_sendmsg <- []byte{}
+}
+
+type LocalServer struct {
+    remote *Connection
+    laddr, raddr string
+    serv *session.Server
+    running bool
+    // stats
+    s_accept uint32
+}
+
+func NewLocalServer(laddr, raddr string, remote *Connection) (*LocalServer, error) {
+    ls := &LocalServer{
+	remote: remote,
+	laddr: laddr,
+	raddr: raddr,
+    }
+    serv, err := session.NewServer(laddr, func(conn net.Conn) {
+	ls.Handle_Session(conn)
+    })
+    if err != nil {
+	return nil, err
+    }
+    ls.serv = serv
+    return ls, nil
+}
+
+func (ls *LocalServer)String() string {
+    peerid := uint32(0)
+    if ls.remote != nil {
+	peerid = ls.remote.peerid
+    }
+    stats := fmt.Sprintf("%d", ls.s_accept)
+    return fmt.Sprintf("localserver %s %s 0x%x %s", ls.laddr, ls.raddr, peerid, stats)
+}
+
+func (ls *LocalServer)Handle_Session(lconn net.Conn) {
+    if ls.remote == nil {
+	return
+    }
+    ls.s_accept++
+    // try to send
+    ls.remote.q_sendmsg <- []byte("new session")
+}
+
+func (ls *LocalServer)Run() {
+    ls.running = true
+    ls.serv.Run()
+}
+
+func (ls *LocalServer)Stop() {
+    ls.running = false
+    ls.serv.Stop()
 }
 
 type Peer struct {

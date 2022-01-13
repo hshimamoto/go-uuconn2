@@ -104,7 +104,25 @@ func Scenario() {
     // 1sec...
     time.Sleep(time.Second)
 
-    for i := 0; i < 5; i++ {
+    for i := 0; i < 3; i++ {
+	logrus.Infof("check %d/10", i+1)
+	// show inst1 INFO
+	api("localhost:8888", "INFO")
+	// show inst2 INFO
+	api("localhost:8889", "INFO")
+	// 1sec...
+	time.Sleep(time.Second)
+    }
+
+    // try to connect
+    conn1, _ := session.Dial("127.0.0.1:18888")
+    conn2, _ := session.Dial("127.0.0.1:18889")
+    // 1sec...
+    time.Sleep(time.Second)
+    conn1.Close()
+    conn2.Close()
+
+    for i := 0; i < 3; i++ {
 	logrus.Infof("check %d/10", i+1)
 	// show inst1 INFO
 	api("localhost:8888", "INFO")

@@ -110,6 +110,8 @@ type Connection struct {
     lastInform time.Time
     sockidx int
     m sync.Mutex
+    q_sendmsg chan []byte
+    running bool
 }
 
 type LocalServer struct {
@@ -117,6 +119,8 @@ type LocalServer struct {
     laddr, raddr string
     serv *session.Server
     running bool
+    // stats
+    s_accept uint32
 }
 
 func NewLocalServer(laddr, raddr string, remote *Connection) (*LocalServer, error) {
@@ -140,13 +144,17 @@ func (ls *LocalServer)String() string {
     if ls.remote != nil {
 	peerid = ls.remote.peerid
     }
-    return fmt.Sprintf("localserver %s %s 0x%x", ls.laddr, ls.raddr, peerid)
+    stats := fmt.Sprintf("%d", ls.s_accept)
+    return fmt.Sprintf("localserver %s %s 0x%x %s", ls.laddr, ls.raddr, peerid, stats)
 }
 
 func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     if ls.remote == nil {
 	return
     }
+    ls.s_accept++
+    // try to send
+    ls.remote.q_sendmsg <- []byte("new session")
 }
 
 func (ls *LocalServer)Run() {
@@ -164,6 +172,7 @@ func NewConnection(peerid uint32) *Connection {
 	remotes: []string{},
 	peerid: peerid,
 	startTime: time.Now(),
+	q_sendmsg: make(chan []byte, 64),
     }
     return c
 }
@@ -195,6 +204,21 @@ func (c *Connection)Freshers() []string {
 	return c.remotes
     }
     return c.remotes[l-3:]
+}
+
+func (c *Connection)Run() {
+    c.running = true
+    for c.running {
+	sendmsg := <-c.q_sendmsg
+	if len(sendmsg) > 0 {
+	    logrus.Infof("sendmsg %d bytes", len(sendmsg))
+	}
+    }
+}
+
+func (c *Connection)Stop() {
+    c.running = false
+    c.q_sendmsg <- []byte{}
 }
 
 type Peer struct {
@@ -251,6 +275,8 @@ func (p *Peer)FindConnection(peerid uint32) *Connection {
 	}
     }
     c := NewConnection(peerid)
+    // TODO start here?
+    go c.Run()
     p.conns = append(p.conns, c)
     return c
 }
@@ -569,6 +595,10 @@ func (p *Peer)Run() {
     // stop local servers
     for _, serv := range p.lservs {
 	serv.Stop()
+    }
+    // stop connections
+    for _, conn := range p.conns {
+	conn.Stop()
     }
     // stop local sockets
     for _, sock := range p.lsocks {

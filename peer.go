@@ -112,6 +112,11 @@ type Stream struct {
     streamid uint32
 }
 
+func NewStream(sid uint32) *Stream {
+    st := &Stream{ streamid: sid }
+    return st
+}
+
 type Connection struct {
     remotes []string
     peerid uint32
@@ -192,6 +197,7 @@ type LocalServer struct {
     remote *Connection
     laddr, raddr string
     serv *session.Server
+    streamid uint32
     running bool
     // stats
     s_accept uint32
@@ -227,8 +233,14 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 	return
     }
     ls.s_accept++
+    // prepare stream
+    st := NewStream(ls.streamid)
+    ls.streamid++
+    // prepare message
+    msg := []byte("openSSSSDDDDXXXXXXXX")
+    binary.LittleEndian.PutUint32(msg[12:], st.streamid)
     // try to send
-    ls.remote.q_sendmsg <- []byte("openSSSSDDDDXXXXXXXX")
+    ls.remote.q_sendmsg <- msg
 }
 
 func (ls *LocalServer)Run() {
@@ -258,6 +270,7 @@ type Peer struct {
     s_ignore uint32
     s_probe uint32
     s_inform uint32
+    s_open, s_openack uint32
 }
 
 func NewPeer(laddr string) (*Peer, error) {
@@ -422,6 +435,20 @@ func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid u
     }
 }
 
+// Open Message
+// |open|spid|dpid|stream id|remote addr|
+func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    p.s_open++
+    // create stream and replay
+}
+
+// Open Ack/Nack Message
+// |oack|spid|dpid|stream id|result|
+func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    p.s_openack++
+    // create stream and replay
+}
+
 func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     p.s_udp++
     //logrus.Infof("recv %d bytes from %v on %v", len(msg), addr, s.sock.LocalAddr())
@@ -449,6 +476,8 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     switch string(code) {
     case "prob": p.UDP_handler_Probe(s, addr, spid, dpid, data)
     case "info": p.UDP_handler_Inform(s, addr, spid, dpid, data)
+    case "open": p.UDP_handler_Open(s, addr, spid, dpid, data)
+    case "oack": p.UDP_handler_OpenAck(s, addr, spid, dpid, data)
     default:
 	logrus.Infof("msg code [%s] 0x%x 0x%x", code, spid, dpid)
     }

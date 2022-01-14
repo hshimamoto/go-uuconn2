@@ -164,12 +164,18 @@ func (c *Connection)Freshers() []string {
     return c.remotes[l-3:]
 }
 
-func (c *Connection)Run() {
+func (c *Connection)Run(q chan UDPMessage) {
     c.running = true
     for c.running {
 	sendmsg := <-c.q_sendmsg
 	if len(sendmsg) > 0 {
 	    logrus.Infof("sendmsg %d bytes", len(sendmsg))
+	    r := c.Freshers()[0]
+	    addr, err := net.ResolveUDPAddr("udp", r)
+	    if err != nil {
+		continue
+	    }
+	    q <- UDPMessage{ msg:sendmsg, addr: addr }
 	}
     }
 }
@@ -219,7 +225,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     }
     ls.s_accept++
     // try to send
-    ls.remote.q_sendmsg <- []byte("new session")
+    ls.remote.q_sendmsg <- []byte("openSSSSDDDDXXXXXXXX")
 }
 
 func (ls *LocalServer)Run() {
@@ -242,6 +248,7 @@ type Peer struct {
     hostname string
     running bool
     lastCheck time.Time
+    q_sendmsg chan UDPMessage
     m sync.Mutex
     // stats
     s_udp uint32
@@ -274,6 +281,7 @@ func NewPeer(laddr string) (*Peer, error) {
     if hostname, err := os.Hostname(); err == nil {
 	p.hostname = hostname
     }
+    p.q_sendmsg = make(chan UDPMessage, 64)
     return p, nil
 }
 
@@ -287,7 +295,7 @@ func (p *Peer)FindConnection(peerid uint32) *Connection {
     }
     c := NewConnection(peerid)
     // TODO start here?
-    go c.Run()
+    go c.Run(p.q_sendmsg)
     p.conns = append(p.conns, c)
     return c
 }
@@ -606,8 +614,21 @@ func (p *Peer)Run() {
     logrus.Infof("peer running")
     go p.serv.Run()
     go p.Housekeeper()
+    idx := 0
     for p.running {
-	time.Sleep(time.Second)
+	// handle q_sendmsg here
+	msg := <-p.q_sendmsg
+	// okay send it
+	if msg.addr != nil && len(msg.msg) > 0 {
+	    p.m.Lock()
+	    if idx >= len(p.lsocks) {
+		idx = 0
+	    }
+	    sock := p.lsocks[idx]
+	    p.m.Unlock()
+	    idx++
+	    sock.q_sendmsg <- msg
+	}
     }
     time.Sleep(time.Second)
     p.serv.Stop()

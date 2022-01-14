@@ -168,13 +168,16 @@ func (c *Connection)Run(q chan UDPMessage) {
     c.running = true
     for c.running {
 	sendmsg := <-c.q_sendmsg
-	if len(sendmsg) > 0 {
+	if len(sendmsg) > 12 {
 	    logrus.Infof("sendmsg %d bytes", len(sendmsg))
 	    r := c.Freshers()[0]
 	    addr, err := net.ResolveUDPAddr("udp", r)
 	    if err != nil {
 		continue
 	    }
+	    // update msg
+	    // replace dest peerid
+	    binary.LittleEndian.PutUint32(sendmsg[8:], c.peerid)
 	    q <- UDPMessage{ msg:sendmsg, addr: addr }
 	}
     }
@@ -619,7 +622,9 @@ func (p *Peer)Run() {
 	// handle q_sendmsg here
 	msg := <-p.q_sendmsg
 	// okay send it
-	if msg.addr != nil && len(msg.msg) > 0 {
+	if msg.addr != nil && len(msg.msg) > 12 {
+	    // replace src peerid
+	    binary.LittleEndian.PutUint32(msg.msg[4:], p.peerid)
 	    p.m.Lock()
 	    if idx >= len(p.lsocks) {
 		idx = 0

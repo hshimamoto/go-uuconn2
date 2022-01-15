@@ -155,6 +155,7 @@ type Connection struct {
     remotes []string
     peerid uint32
     hostname string
+    streams []*Stream
     startTime time.Time
     lastProbe time.Time
     lastInform time.Time
@@ -201,6 +202,10 @@ func (c *Connection)Freshers() []string {
 	return c.remotes
     }
     return c.remotes[l-3:]
+}
+
+func (c *Connection)LookupStream(streamid uint32) *Stream {
+    return nil
 }
 
 func (c *Connection)Run(q chan UDPMessage) {
@@ -350,7 +355,18 @@ func (p *Peer)FindConnection(peerid uint32) *Connection {
     return c
 }
 
-func (p *Peer)LookupConnection(name string) *Connection {
+func (p *Peer)LookupConnectionById(peerid uint32) *Connection {
+    p.m.Lock()
+    defer p.m.Unlock()
+    for _, c := range p.conns {
+	if c.peerid == peerid {
+	    return c
+	}
+    }
+    return nil
+}
+
+func (p *Peer)LookupConnectionByName(name string) *Connection {
     p.m.Lock()
     defer p.m.Unlock()
     for _, c := range p.conns {
@@ -358,7 +374,14 @@ func (p *Peer)LookupConnection(name string) *Connection {
 	    return c
 	}
     }
-    // name is peerid
+    return nil
+}
+
+func (p *Peer)LookupConnection(name string) *Connection {
+    c := p.LookupConnectionByName(name)
+    if c != nil {
+	return c
+    }
     if name[0:2] == "0x" {
 	name = name[2:]
     }
@@ -367,13 +390,7 @@ func (p *Peer)LookupConnection(name string) *Connection {
 	return nil
     }
     peerid := uint32(peerid64)
-    for _, c := range p.conns {
-	if c.peerid == peerid {
-	    return c
-	}
-    }
-    logrus.Infof("Lookup: no name %s peerid 0x%x", name, peerid)
-    return nil
+    return p.LookupConnectionById(peerid)
 }
 
 func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
@@ -473,7 +490,24 @@ func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid u
 // |open|spid|dpid|stream id|remote addr|
 func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     p.s_open++
+    // bad message?
+    if len(data) < 4 {
+	return
+    }
     // create stream and replay
+    // Lookup Connection
+    c := p.LookupConnectionById(spid)
+    if c == nil {
+	// ignore
+	return
+    }
+    streamid := binary.LittleEndian.Uint32(data[0:4])
+    // Lookup Stream
+    st := c.LookupStream(streamid)
+    if st != nil {
+	// already open
+	return
+    }
 }
 
 // Open Ack/Nack Message

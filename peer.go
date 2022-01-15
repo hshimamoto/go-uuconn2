@@ -380,6 +380,7 @@ type RemoteServer struct {
     remote *Connection
     stream *Stream
     laddr, raddr string
+    lastUpdate time.Time
     running bool
 }
 
@@ -389,6 +390,7 @@ func NewRemoteServer(laddr, raddr string, remote *Connection, stream *Stream) (*
 	stream: stream,
 	laddr: laddr,
 	raddr: raddr,
+	lastUpdate: time.Now(),
     }
     return rs, nil
 }
@@ -405,12 +407,14 @@ func (rs *RemoteServer)Run() {
     rs.remote.q_sendmsg <- ack
 
     for rs.running {
+	rs.lastUpdate = time.Now()
 	time.Sleep(time.Second)
     }
 }
 
 func (rs *RemoteServer)Stop() {
     rs.running = false
+    rs.lastUpdate = time.Now()
 }
 
 type Peer struct {

@@ -144,10 +144,14 @@ func (s *LocalSocket)Stop() {
 
 type Stream struct {
     streamid uint32
+    createdTime time.Time
 }
 
-func NewStream(sid uint32) *Stream {
-    st := &Stream{ streamid: sid }
+func NewStream(streamid uint32) *Stream {
+    st := &Stream{
+	streamid: streamid,
+	createdTime: time.Now(),
+    }
     return st
 }
 
@@ -155,7 +159,9 @@ type Connection struct {
     remotes []string
     peerid uint32
     hostname string
-    streams []*Stream
+    lstreams []*Stream
+    rstreams []*Stream
+    streamid uint32
     startTime time.Time
     lastProbe time.Time
     lastInform time.Time
@@ -204,7 +210,34 @@ func (c *Connection)Freshers() []string {
     return c.remotes[l-3:]
 }
 
-func (c *Connection)LookupStream(streamid uint32) *Stream {
+func (c *Connection)NewLocalStream() *Stream {
+    c.m.Lock()
+    streamid := c.streamid
+    c.streamid++
+    c.m.Unlock()
+    c.m.Lock()
+    st := NewStream(streamid)
+    c.lstreams = append(c.lstreams, st)
+    c.m.Unlock()
+    return st
+}
+
+func (c *Connection)NewRemoteStream(rid uint32) *Stream {
+    c.m.Lock()
+    st := NewStream(rid)
+    c.rstreams = append(c.rstreams, st)
+    c.m.Unlock()
+    return st
+}
+
+func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
+    c.m.Lock()
+    defer c.m.Unlock()
+    for _, s := range c.rstreams {
+	if s.streamid == rid {
+	    return s
+	}
+    }
     return nil
 }
 
@@ -236,7 +269,6 @@ type LocalServer struct {
     remote *Connection
     laddr, raddr string
     serv *session.Server
-    streamid uint32
     running bool
     // stats
     s_accept uint32
@@ -273,8 +305,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     }
     ls.s_accept++
     // prepare stream
-    st := NewStream(ls.streamid)
-    ls.streamid++
+    st := ls.remote.NewLocalStream()
     // prepare message
     msg := []byte("openSSSSDDDDXXXXXXXX")
     binary.LittleEndian.PutUint32(msg[12:], st.streamid)
@@ -487,7 +518,7 @@ func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid u
 }
 
 // Open Message
-// |open|spid|dpid|stream id|remote addr|
+// |open|spid|dpid|src stream id|dst stream id|remote addr|
 func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     p.s_open++
     // bad message?
@@ -503,15 +534,16 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     }
     streamid := binary.LittleEndian.Uint32(data[0:4])
     // Lookup Stream
-    st := c.LookupStream(streamid)
+    st := c.LookupRemoteStream(streamid)
     if st != nil {
 	// already open
 	return
     }
+    logrus.Infof("OPEN from 0x%x stream:0x%x", spid, streamid)
 }
 
 // Open Ack/Nack Message
-// |oack|spid|dpid|stream id|result|
+// |oack|spid|dpid|src stream id|dst stream id|result|
 func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     p.s_openack++
     // create stream and replay

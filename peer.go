@@ -144,6 +144,7 @@ func (s *LocalSocket)Stop() {
 
 type Stream struct {
     streamid uint32
+    lopen, ropen bool
     createdTime time.Time
 }
 
@@ -184,7 +185,10 @@ func NewConnection(peerid uint32) *Connection {
 func (c *Connection)String() string {
     c.m.Lock()
     defer c.m.Unlock()
-    return fmt.Sprintf("0x%x %s [%v] %v", c.peerid, c.hostname, time.Since(c.startTime), c.remotes)
+    return fmt.Sprintf("0x%x %s [%v] local:%d remote:%d %v",
+	    c.peerid, c.hostname, time.Since(c.startTime),
+	    len(c.lstreams), len(c.rstreams),
+	    c.remotes)
 }
 
 func (c *Connection)Update(addr string) {
@@ -317,6 +321,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     ls.s_accept++
     // prepare stream
     st := ls.remote.NewLocalStream()
+    st.lopen = true
     // prepare message
     msg := []byte("openSSSSDDDDXXXXXXXX")
     binary.LittleEndian.PutUint32(msg[12:], st.streamid)
@@ -553,6 +558,8 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     logrus.Infof("Open from 0x%x stream:0x%x", spid, streamid)
     // New
     st = c.NewRemoteStream(streamid)
+    // TODO dial to "local addr" (ask from remote)
+    st.lopen = true
     // ack message
     ack := []byte("oackSSSSDDDDXXXXRRRR")
     binary.LittleEndian.PutUint32(ack[8:], streamid)
@@ -580,6 +587,8 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
     if st == nil {
 	return
     }
+    // okay, remote was opened
+    st.ropen = true
     logrus.Infof("OpenAck from 0x%x stream:0x%x", spid, streamid)
 }
 

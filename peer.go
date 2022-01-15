@@ -130,7 +130,12 @@ func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
 	if n >= 12 {
 	    // mask msg
 	    MessageMask(msg)
+	    prev := time.Now()
 	    cb(s, addr, msg)
+	    d := time.Since(prev)
+	    if d > time.Second {
+		logrus.Infof("handler takes too long %v %s", d, msg[0:4])
+	    }
 	}
     }
     // stop sender

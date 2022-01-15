@@ -16,6 +16,21 @@ import (
     "github.com/hshimamoto/go-session"
 )
 
+func MessageMask(msg []byte) {
+    l := len(msg)
+    if l < 12 {
+	// TODO warn here?
+	return
+    }
+    mask := msg[4:8]
+    //logrus.Infof("Mask with %s: %s", msg[4:8], msg[0:4])
+    for i := 0; i < 4; i++ { msg[i] ^= mask[i] } // mask code
+    //logrus.Infof("Mask after: %s", msg[0:4])
+    for i := 8; i < l; i++ {
+	msg[i] ^= mask[i % 4]
+    }
+}
+
 type UDPMessage struct {
     addr *net.UDPAddr
     msg []byte
@@ -70,8 +85,13 @@ func (s *LocalSocket)String() string {
 func (s *LocalSocket)Sender() {
     for s.running {
 	msg := <-s.q_sendmsg
-	if msg.addr != nil && len(msg.msg) > 0 {
-	    s.sock.WriteToUDP(msg.msg, msg.addr)
+	if msg.addr != nil && len(msg.msg) >= 12 {
+	    // make copy
+	    sendmsg := make([]byte, len(msg.msg))
+	    copy(sendmsg, msg.msg)
+	    // mask msg
+	    MessageMask(sendmsg)
+	    s.sock.WriteToUDP(sendmsg, msg.addr)
 	    s.s_send++
 	}
     }
@@ -97,7 +117,21 @@ func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
 	    continue
 	}
 	s.s_recv++
-	cb(s, addr, buf[:n])
+	//msg := make([]byte, n)
+	//copy(msg, buf[:n])
+	msg := buf[:n]
+	if msg[0] == 'P' {
+	    // v1 "Probe" ?
+	    if string(msg[0:6]) == "Probe " {
+		cb(s, addr, msg)
+		continue
+	    }
+	}
+	if n >= 12 {
+	    // mask msg
+	    MessageMask(msg)
+	    cb(s, addr, msg)
+	}
     }
     // stop sender
     s.q_sendmsg <- UDPMessage{}

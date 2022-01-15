@@ -75,7 +75,7 @@ func Scenario() {
     time.Sleep(time.Millisecond * 10)
 
     // wait a bit
-    time.Sleep(time.Second)
+    time.Sleep(time.Millisecond * 100)
 
     logrus.Infof("uuconn2 instances started")
 
@@ -83,8 +83,6 @@ func Scenario() {
     info1 := api("localhost:8888", "INFO")
     // show inst2 INFO
     info2 := api("localhost:8889", "INFO")
-
-    time.Sleep(time.Second)
 
     // find inst1 addr
     addr1 := get_addr(info1)
@@ -94,6 +92,8 @@ func Scenario() {
 
     logrus.Infof("addr1 = %s", addr1)
     logrus.Infof("addr2 = %s", addr2)
+
+    time.Sleep(time.Millisecond * 100)
 
     // ask to connect
     api("localhost:8888", "CONNECT " + addr2)

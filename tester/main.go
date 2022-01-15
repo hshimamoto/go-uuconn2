@@ -42,6 +42,15 @@ func get_addr(info string) string {
     return ""
 }
 
+func dumpinfo(n int) {
+    for i := 0; i < n; i++ {
+	logrus.Infof("dumpinfo %d/%d", i+1, n)
+	api("localhost:8888", "INFO") // show inst1 INFO
+	api("localhost:8889", "INFO") // show inst2 INFO
+	time.Sleep(time.Second)
+    }
+}
+
 func Scenario() {
     logrus.Infof("start scenario")
     // local uuconn2 instance 1
@@ -84,74 +93,31 @@ func Scenario() {
     api("localhost:8888", "CONNECT " + addr2)
     //api("localhost:8889", "CONNECT " + addr1)
 
-    // 1sec...
-    time.Sleep(time.Second)
-
-    for i := 0; i < 5; i++ {
-	logrus.Infof("check %d/10", i+1)
-	// show inst1 INFO
-	api("localhost:8888", "INFO")
-	// show inst2 INFO
-	api("localhost:8889", "INFO")
-	// 1sec...
-	time.Sleep(time.Second)
-    }
+    dumpinfo(5)
 
     logrus.Infof("adding localserv")
 
     api("localhost:8888", "ADD 127.0.0.1:18888 " + peerid2 + ":127.0.0.1:22")
     api("localhost:8889", "ADD 127.0.0.1:18889 " + peerid1 + ":127.0.0.1:22")
-    // 1sec...
-    time.Sleep(time.Second)
 
-    for i := 0; i < 3; i++ {
-	logrus.Infof("check %d/10", i+1)
-	// show inst1 INFO
-	api("localhost:8888", "INFO")
-	// show inst2 INFO
-	api("localhost:8889", "INFO")
-	// 1sec...
-	time.Sleep(time.Second)
-    }
+    dumpinfo(3)
 
     // try to connect
     conn1, _ := session.Dial("127.0.0.1:18888")
     conn2, _ := session.Dial("127.0.0.1:18889")
-    // 2sec info show
-    for i := 0; i < 2; i++ {
-	logrus.Infof("check %d/10", i+1)
-	// show inst1 INFO
-	api("localhost:8888", "INFO")
-	// show inst2 INFO
-	api("localhost:8889", "INFO")
-	// 1sec...
-	time.Sleep(time.Second)
-    }
+
+    dumpinfo(2)
+
     // try to send data in conn1
     logrus.Infof("write HELLO in conn1")
     conn1.Write([]byte("HELLO"))
-    // 2sec info show
-    for i := 0; i < 2; i++ {
-	logrus.Infof("check %d/10", i+1)
-	// show inst1 INFO
-	api("localhost:8888", "INFO")
-	// show inst2 INFO
-	api("localhost:8889", "INFO")
-	// 1sec...
-	time.Sleep(time.Second)
-    }
+
+    dumpinfo(2)
+
     conn1.Close()
     conn2.Close()
 
-    for i := 0; i < 3; i++ {
-	logrus.Infof("check %d/10", i+1)
-	// show inst1 INFO
-	api("localhost:8888", "INFO")
-	// show inst2 INFO
-	api("localhost:8889", "INFO")
-	// 1sec...
-	time.Sleep(time.Second)
-    }
+    dumpinfo(3)
 
     logrus.Infof("ending test")
 

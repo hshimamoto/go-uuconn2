@@ -336,7 +336,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     st := ls.remote.NewLocalStream()
     st.lopen = true
     // prepare message
-    msg := []byte("openSSSSDDDDXXXXXXXX")
+    msg := []byte("openSSSSDDDDXXXX" + ls.raddr)
     binary.LittleEndian.PutUint32(msg[12:], st.streamid)
     // try to send
     ls.remote.q_sendmsg <- msg
@@ -398,8 +398,15 @@ func NewRemoteServer(laddr, raddr string, remote *Connection, stream *Stream) (*
 func (rs *RemoteServer)Run() {
     rs.running = true
 
-    // TODO dial to "local addr" (ask from remote)
     rs.stream.lopen = true
+    // dial to "local addr" (ask from remote)
+    conn, err := session.Dial(rs.raddr)
+    if err != nil {
+	logrus.Infof("Dial: %v", err)
+	return
+    }
+    defer conn.Close()
+
     // ack message
     ack := []byte("oackSSSSDDDDXXXXRRRR")
     binary.LittleEndian.PutUint32(ack[12:], rs.stream.streamid)
@@ -648,11 +655,12 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
 	// already open
 	return
     }
-    logrus.Infof("Open from 0x%x stream:0x%x", spid, streamid)
+    raddr := string(data[4:])
+    logrus.Infof("Open from 0x%x stream:0x%x %s", spid, streamid, raddr)
     // New
     st = c.NewRemoteStream(streamid)
     // New RemoteServer
-    rs, err := NewRemoteServer("laddr", "raddr", c, st)
+    rs, err := NewRemoteServer("laddr", raddr, c, st)
     if err != nil {
 	// never happen
 	return

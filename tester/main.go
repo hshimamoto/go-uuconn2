@@ -117,8 +117,29 @@ func Scenario() {
     // try to connect
     conn1, _ := session.Dial("127.0.0.1:18888")
     conn2, _ := session.Dial("127.0.0.1:18889")
-    // 1sec...
-    time.Sleep(time.Second)
+    // 2sec info show
+    for i := 0; i < 2; i++ {
+	logrus.Infof("check %d/10", i+1)
+	// show inst1 INFO
+	api("localhost:8888", "INFO")
+	// show inst2 INFO
+	api("localhost:8889", "INFO")
+	// 1sec...
+	time.Sleep(time.Second)
+    }
+    // try to send data in conn1
+    logrus.Infof("write HELLO in conn1")
+    conn1.Write([]byte("HELLO"))
+    // 2sec info show
+    for i := 0; i < 2; i++ {
+	logrus.Infof("check %d/10", i+1)
+	// show inst1 INFO
+	api("localhost:8888", "INFO")
+	// show inst2 INFO
+	api("localhost:8889", "INFO")
+	// 1sec...
+	time.Sleep(time.Second)
+    }
     conn1.Close()
     conn2.Close()
 

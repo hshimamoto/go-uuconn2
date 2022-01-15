@@ -147,6 +147,11 @@ func (s *LocalSocket)Stop() {
     s.retired = true
 }
 
+type DataBlock struct {
+    data []byte
+    blkid uint32
+}
+
 type Stream struct {
     streamid uint32
     lopen, ropen bool
@@ -320,6 +325,7 @@ func (ls *LocalServer)String() string {
 }
 
 func (ls *LocalServer)Handle_Session(lconn net.Conn) {
+    defer lconn.Close()
     if ls.remote == nil {
 	return
     }
@@ -332,6 +338,29 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     binary.LittleEndian.PutUint32(msg[12:], st.streamid)
     // try to send
     ls.remote.q_sendmsg <- msg
+    // TODO wait st.ropen
+    // wait a 1sec right now
+    time.Sleep(time.Second)
+    if st.ropen == false {
+	logrus.Infof("stream not opened")
+	return
+    }
+    // read data
+    buf := make([]byte, 256)
+    n, err := lconn.Read(buf)
+    if n <= 0 {
+	logrus.Infof("Read: %v", err)
+	return
+    }
+    // send the data to remote
+    rsndmsg := make([]byte, 12+16+n)
+    copy(rsndmsg, []byte("rsnd"))
+    binary.LittleEndian.PutUint32(rsndmsg[12+ 0:], 0) // blkid
+    binary.LittleEndian.PutUint32(rsndmsg[12+ 4:], 1) // nr parts
+    binary.LittleEndian.PutUint32(rsndmsg[12+ 8:], 0) // partid
+    binary.LittleEndian.PutUint32(rsndmsg[12+12:], uint32(n)) // part len
+    copy(rsndmsg[12+16:], buf[:n])
+    ls.remote.q_sendmsg <- rsndmsg
 }
 
 func (ls *LocalServer)Run() {
@@ -443,6 +472,20 @@ func (p *Peer)LookupConnection(name string) *Connection {
     }
     peerid := uint32(peerid64)
     return p.LookupConnectionById(peerid)
+}
+
+// data must contain streamid
+func (p *Peer)LookupConnectionAndRemoteStream(peerid uint32, data []byte) (*Connection, *Stream) {
+    if len(data) < 4 {
+	return nil, nil
+    }
+    c := p.LookupConnectionById(peerid)
+    if c == nil {
+	return nil, nil
+    }
+    streamid := binary.LittleEndian.Uint32(data[0:4])
+    // Lookup Remote Stream
+    return c, c.LookupRemoteStream(streamid)
 }
 
 func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
@@ -597,6 +640,29 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
     logrus.Infof("OpenAck from 0x%x stream:0x%x", spid, streamid)
 }
 
+// Remote Send
+//  LocalServer read and transfer data to remote stream
+// |rsnd|spid|dpid|stream id|blockdata...|
+func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    c, st := p.LookupConnectionAndRemoteStream(dpid, data)
+    if c == nil || st == nil {
+	return
+    }
+    data = data[4:]
+    // blockdata
+    // |blkid|nr parts|part id|part len|data...|
+    if len(data) <= 16 {
+	return
+    }
+    blkid := binary.LittleEndian.Uint32(data[0:4])
+    nr_parts := binary.LittleEndian.Uint32(data[4:8])
+    partid := binary.LittleEndian.Uint32(data[8:12])
+    partlen := binary.LittleEndian.Uint32(data[12:16])
+    data = data[16:]
+    logrus.Infof("rsnd 0x%x 0x%x %d %d %d %d %d",
+	    c.peerid, st.streamid, blkid, nr_parts, partid, partlen, len(data))
+}
+
 func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     p.s_udp++
     //logrus.Infof("recv %d bytes from %v on %v", len(msg), addr, s.sock.LocalAddr())
@@ -626,6 +692,7 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     case "info": p.UDP_handler_Inform(s, addr, spid, dpid, data)
     case "open": p.UDP_handler_Open(s, addr, spid, dpid, data)
     case "oack": p.UDP_handler_OpenAck(s, addr, spid, dpid, data)
+    case "rsnd": p.UDP_handler_RemoteSend(s, addr, spid, dpid, data)
     default:
 	logrus.Infof("msg code [%s] 0x%x 0x%x", code, spid, dpid)
     }

@@ -62,11 +62,17 @@ func Scenario() {
     if err1 != nil {
 	logrus.Infof("Start: %v", err1)
     }
+    time.Sleep(time.Millisecond * 10)
+    os.Rename("uuconn2.log", "uuconn2-1.log")
+    time.Sleep(time.Millisecond * 10)
     // start inst2
     err2 := inst2.Start()
     if err2 != nil {
 	logrus.Infof("Start: %v", err2)
     }
+    time.Sleep(time.Millisecond * 10)
+    os.Rename("uuconn2.log", "uuconn2-2.log")
+    time.Sleep(time.Millisecond * 10)
 
     // wait a bit
     time.Sleep(time.Second)

@@ -222,6 +222,17 @@ func (c *Connection)NewLocalStream() *Stream {
     return st
 }
 
+func (c *Connection)LookupLocalStream(lid uint32) *Stream {
+    c.m.Lock()
+    defer c.m.Unlock()
+    for _, s := range c.lstreams {
+	if s.streamid == lid {
+	    return s
+	}
+    }
+    return nil
+}
+
 func (c *Connection)NewRemoteStream(rid uint32) *Stream {
     c.m.Lock()
     st := NewStream(rid)
@@ -518,7 +529,7 @@ func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid u
 }
 
 // Open Message
-// |open|spid|dpid|src stream id|dst stream id|remote addr|
+// |open|spid|dpid|stream id|remote addr|
 func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     p.s_open++
     // bad message?
@@ -539,14 +550,37 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
 	// already open
 	return
     }
-    logrus.Infof("OPEN from 0x%x stream:0x%x", spid, streamid)
+    logrus.Infof("Open from 0x%x stream:0x%x", spid, streamid)
+    // New
+    st = c.NewRemoteStream(streamid)
+    // ack message
+    ack := []byte("oackSSSSDDDDXXXXRRRR")
+    binary.LittleEndian.PutUint32(ack[8:], streamid)
+    // use connection queue
+    c.q_sendmsg <- ack
 }
 
 // Open Ack/Nack Message
-// |oack|spid|dpid|src stream id|dst stream id|result|
+// |oack|spid|dpid|stream id|result|
 func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     p.s_openack++
-    // create stream and replay
+    // bad message?
+    if len(data) < 4 {
+	return
+    }
+    // Lookup Connection
+    c := p.LookupConnectionById(spid)
+    if c == nil {
+	// ignore
+	return
+    }
+    streamid := binary.LittleEndian.Uint32(data[0:4])
+    // Lookup Local Stream
+    st := c.LookupLocalStream(streamid)
+    if st == nil {
+	return
+    }
+    logrus.Infof("OpenAck from 0x%x stream:0x%x", spid, streamid)
 }
 
 func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {

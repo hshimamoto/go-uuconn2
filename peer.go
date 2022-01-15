@@ -148,14 +148,40 @@ func (s *LocalSocket)Stop() {
 }
 
 type DataBlock struct {
-    data []byte
     blkid uint32
+    data []byte
+    rest uint32
+}
+
+func NewDataBlock(blkid uint32, data []byte) *DataBlock {
+    blk := &DataBlock{
+	blkid: blkid,
+	data: data,
+    }
+    nparts := (len(data) + 1023) / 1024
+    blk.rest = uint32(uint64(1 << nparts) - 1)
+    logrus.Infof("%d parts rest 0x%x", nparts, blk.rest)
+    return blk
+}
+
+type Buffer struct {
+    data []byte
+    idx int
+}
+
+func NewBuffer() *Buffer {
+    return &Buffer{
+	data: make([]byte, 32768),
+	idx: 0,
+    }
 }
 
 type Stream struct {
     streamid uint32
     lopen, ropen bool
     createdTime time.Time
+    rblk *DataBlock
+    rblkid uint32
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -413,6 +439,41 @@ func (rs *RemoteServer)Run() {
     // use connection queue
     rs.remote.q_sendmsg <- ack
 
+    st := rs.stream
+    // buffer
+    rbuf0 := NewBuffer()
+    rbuf1 := NewBuffer()
+    currbuf := rbuf0
+    blkbuf := rbuf1
+    // start local reader gorutine
+    go func() {
+	for rs.running {
+	    if st.rblk == nil && currbuf.idx > 0 {
+		// create datablock
+		st.rblk = NewDataBlock(st.rblkid, currbuf.data[:currbuf.idx])
+		st.rblkid++
+		// swap
+		tmpbuf := currbuf
+		currbuf = blkbuf
+		blkbuf = tmpbuf
+		currbuf.idx = 0
+		continue
+	    }
+	    rest := len(currbuf.data) - currbuf.idx
+	    if rest <= 0 {
+		// no buffer
+		time.Sleep(time.Second)
+		continue
+	    }
+	    n, err := conn.Read(currbuf.data[currbuf.idx:])
+	    if n <= 0 {
+		logrus.Infof("Read: %v", err)
+		// close?
+		break
+	    }
+	    currbuf.idx += n
+	}
+    }()
     for rs.running {
 	rs.lastUpdate = time.Now()
 	time.Sleep(time.Second)

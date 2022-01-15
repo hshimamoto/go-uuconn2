@@ -610,7 +610,7 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     st.lopen = true
     // ack message
     ack := []byte("oackSSSSDDDDXXXXRRRR")
-    binary.LittleEndian.PutUint32(ack[8:], streamid)
+    binary.LittleEndian.PutUint32(ack[12:], streamid)
     // use connection queue
     c.q_sendmsg <- ack
 }
@@ -623,16 +623,19 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
     if len(data) < 4 {
 	return
     }
+    logrus.Infof("recv oack")
     // Lookup Connection
     c := p.LookupConnectionById(spid)
     if c == nil {
 	// ignore
+	logrus.Infof("no connection")
 	return
     }
     streamid := binary.LittleEndian.Uint32(data[0:4])
     // Lookup Local Stream
     st := c.LookupLocalStream(streamid)
     if st == nil {
+	logrus.Infof("no local stream 0x%x", streamid)
 	return
     }
     // okay, remote was opened

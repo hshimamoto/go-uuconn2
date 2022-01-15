@@ -376,11 +376,49 @@ func (ls *LocalServer)Stop() {
     ls.serv.Stop()
 }
 
+type RemoteServer struct {
+    remote *Connection
+    stream *Stream
+    laddr, raddr string
+    running bool
+}
+
+func NewRemoteServer(laddr, raddr string, remote *Connection, stream *Stream) (*RemoteServer, error) {
+    rs := &RemoteServer{
+	remote: remote,
+	stream: stream,
+	laddr: laddr,
+	raddr: raddr,
+    }
+    return rs, nil
+}
+
+func (rs *RemoteServer)Run() {
+    rs.running = true
+
+    // TODO dial to "local addr" (ask from remote)
+    rs.stream.lopen = true
+    // ack message
+    ack := []byte("oackSSSSDDDDXXXXRRRR")
+    binary.LittleEndian.PutUint32(ack[12:], rs.stream.streamid)
+    // use connection queue
+    rs.remote.q_sendmsg <- ack
+
+    for rs.running {
+	time.Sleep(time.Second)
+    }
+}
+
+func (rs *RemoteServer)Stop() {
+    rs.running = false
+}
+
 type Peer struct {
     lsocks []*LocalSocket
     checkers []string
     conns []*Connection
     lservs []*LocalServer
+    rservs []*RemoteServer
     serv *session.Server
     peerid uint32
     hostname string
@@ -609,13 +647,17 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     logrus.Infof("Open from 0x%x stream:0x%x", spid, streamid)
     // New
     st = c.NewRemoteStream(streamid)
-    // TODO dial to "local addr" (ask from remote)
-    st.lopen = true
-    // ack message
-    ack := []byte("oackSSSSDDDDXXXXRRRR")
-    binary.LittleEndian.PutUint32(ack[12:], streamid)
-    // use connection queue
-    c.q_sendmsg <- ack
+    // New RemoteServer
+    rs, err := NewRemoteServer("laddr", "raddr", c, st)
+    if err != nil {
+	// never happen
+	return
+    }
+    // Start RemoteServer here
+    p.m.Lock()
+    p.rservs = append(p.rservs, rs)
+    p.m.Unlock()
+    go rs.Run()
 }
 
 // Open Ack/Nack Message
@@ -890,6 +932,10 @@ func (p *Peer)Run() {
     }
     time.Sleep(time.Second)
     p.serv.Stop()
+    // stop remote servers
+    for _, serv := range p.rservs {
+	serv.Stop()
+    }
     // stop local servers
     for _, serv := range p.lservs {
 	serv.Stop()

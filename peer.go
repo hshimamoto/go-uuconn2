@@ -347,6 +347,7 @@ func (c *Connection)NewLocalStream() *Stream {
 func (c *Connection)LookupLocalStream(lid uint32) *Stream {
     c.m.Lock()
     defer c.m.Unlock()
+    logrus.Infof("looking for local stream id 0x%x from %d", lid, len(c.lstreams))
     for _, s := range c.lstreams {
 	if s.streamid == lid {
 	    return s
@@ -366,7 +367,7 @@ func (c *Connection)NewRemoteStream(rid uint32) *Stream {
 func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
     c.m.Lock()
     defer c.m.Unlock()
-    logrus.Infof("looking for 0x%x from %d", rid, len(c.rstreams))
+    logrus.Infof("looking for remote stream id 0x%x from %d", rid, len(c.rstreams))
     for _, s := range c.rstreams {
 	logrus.Infof("check 0x%x", s.streamid)
 	if s.streamid == rid {
@@ -986,7 +987,7 @@ func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dp
 //  LocalServer read and transfer data to remote stream
 // |rsck|spid|dpid|stream id|blkid|ack|
 func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
-    c, st := p.LookupConnectionAndRemoteStream(spid, data)
+    c, st := p.LookupConnectionAndLocalStream(spid, data)
     if c == nil || st == nil {
 	logrus.Infof("unknown stream")
 	return
@@ -1002,7 +1003,7 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
 //  LocalServer read and transfer data to remote stream
 // |rrck|spid|dpid|stream id|blockid|ack|
 func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
-    c, st := p.LookupConnectionAndLocalStream(spid, data)
+    c, st := p.LookupConnectionAndRemoteStream(spid, data)
     if c == nil || st == nil {
 	logrus.Infof("unknown stream")
 	return

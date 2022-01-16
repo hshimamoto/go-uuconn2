@@ -169,6 +169,7 @@ func NewDataBlock(blkid uint32) *DataBlock {
 func (blk *DataBlock)SetupMessages(data []byte) {
     nparts := (len(data) + 1023) / 1024
     l := len(data)
+    c := 0
     for i := 0; i < 32; i++ {
 	// create msg template
 	n := l
@@ -180,10 +181,11 @@ func (blk *DataBlock)SetupMessages(data []byte) {
 	binary.LittleEndian.PutUint32(msg[16 +  4:], uint32(nparts))
 	binary.LittleEndian.PutUint32(msg[16 +  8:], uint32(i))
 	binary.LittleEndian.PutUint32(msg[16 + 12:], uint32(n))
-	copy(msg[16 + 16:], data[l:l+n])
+	copy(msg[16 + 16:], data[c:c+n])
 	blk.msgs[i] = msg
 	blk.rest |= (1 << i)
 	l -= n
+	c += n
 	if l <= 0 {
 	    break
 	}
@@ -220,6 +222,7 @@ func (blk *DataBlock)GetBlock(data []byte) {
     }
     offset := partid * 1024
     copy(blk.data[offset:], data[:partlen])
+    //logrus.Infof("copied [%s]", string(data[:partlen]))
     blk.rest |= 1 << partid
     if blk.sz < (offset + partlen) {
 	blk.sz = offset + partlen

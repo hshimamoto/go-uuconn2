@@ -52,6 +52,64 @@ func dumpinfo(n int) {
     }
 }
 
+type TestServer struct {
+    serv *session.Server
+}
+
+func NewTestServer(addr string) *TestServer {
+    ts := &TestServer{}
+    serv, _ := session.NewServer(addr, func(conn net.Conn) {
+	ts.Handler(conn)
+    })
+    ts.serv = serv
+    return ts
+}
+
+func (ts *TestServer)Handler(conn net.Conn) {
+    defer conn.Close()
+    // 1MiB transfer
+    buf := make([]byte, 256)
+    for i := 0; i < 256; i++ {
+	buf[i] = byte(i)
+    }
+    for i := 0; i < 4 * 1024; i++ {
+	conn.Write(buf)
+    }
+    logrus.Infof("Transfer DONE")
+}
+
+func (ts *TestServer)Run() {
+    ts.serv.Run()
+}
+
+func (ts *TestServer)Stop() {
+    ts.serv.Stop()
+}
+
+func (ts *TestServer)Test(addr string) {
+    // connect to addr and recv data...
+    conn, _ := session.Dial(addr)
+    defer conn.Close()
+
+    buf := make([]byte, 256)
+    bad := false
+    for i := 0; i < 4 * 1024; i++ {
+	for n := 0; n < 256; n++ {
+	    buf[n] = byte(255 - n)
+	}
+	conn.Read(buf)
+	for n := 0; n < 256; n++ {
+	    if buf[n] != byte(n) {
+		bad = true
+	    }
+	}
+    }
+    if bad {
+	logrus.Infof("bad result")
+    }
+    logrus.Infof("complete")
+}
+
 func Scenario() {
     logrus.Infof("start scenario")
     // local uuconn2 instance 1
@@ -109,6 +167,9 @@ func Scenario() {
     })
     go testserv.Run()
 
+    ts := NewTestServer(":28889")
+    go ts.Run()
+
     // ask to connect
     api("localhost:8888", "CONNECT " + addr2)
     //api("localhost:8889", "CONNECT " + addr1)
@@ -118,6 +179,7 @@ func Scenario() {
     logrus.Infof("adding localserv")
 
     api("localhost:8888", "ADD 127.0.0.1:18888 " + peerid2 + ":127.0.0.1:18889")
+    api("localhost:8888", "ADD 127.0.0.1:28888 " + peerid2 + ":127.0.0.1:28889")
 
     dumpinfo(3)
 
@@ -150,6 +212,17 @@ func Scenario() {
     }
 
     conn1.Close()
+    ticker.Stop()
+
+    // wait a bit
+    time.Sleep(time.Millisecond * 100)
+
+    ts.Test("localhost:28888")
+
+    // wait a bit
+    time.Sleep(time.Millisecond * 100)
+
+    ts.Stop()
 
     dumpinfo(3)
 

@@ -100,6 +100,7 @@ func Scenario() {
     testserv, _ := session.NewServer(":18889", func(conn net.Conn) {
 	buf := make([]byte, 256)
 	n, _ := conn.Read(buf)
+	logrus.Infof("Test Server recv %s", string(buf[:n]))
 	if string(buf[:n]) == "HELLO" {
 	    conn.Write([]byte("WORLD"))
 	}

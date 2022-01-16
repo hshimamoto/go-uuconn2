@@ -271,6 +271,7 @@ func (st *Stream)SetWriter(w io.Writer) {
 }
 
 func (st *Stream)FlushInblock() {
+    logrus.Infof("Flush %d bytes", st.iblk.sz)
     st.writer.Write(st.iblk.data[:st.iblk.sz])
 }
 
@@ -501,6 +502,9 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 		if st.oblk.rest & (1 << i) == 0 {
 		    continue
 		}
+		if st.oblkack & (1 << i) != 0 {
+		    continue
+		}
 		msg := st.oblk.msgs[i]
 		// fixup msg
 		copy(msg[0:4], []byte("rsnd"))
@@ -607,6 +611,9 @@ func (rs *RemoteServer)Run() {
 	    // send rrcv messages
 	    for i := 0; i < 32; i++ {
 		if st.oblk.rest & (1 << i) == 0 {
+		    continue
+		}
+		if st.oblkack & (1 << i) != 0 {
 		    continue
 		}
 		msg := st.oblk.msgs[i]
@@ -994,6 +1001,7 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
     }
     blkid := binary.LittleEndian.Uint32(data[4:])
     ack := binary.LittleEndian.Uint32(data[8:])
+    logrus.Infof("recv rsck streamid:0x%x 0x%x", st.streamid, ack)
     if st.oblkid == blkid {
 	st.oblkack = ack
     }
@@ -1010,6 +1018,7 @@ func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid,
     }
     blkid := binary.LittleEndian.Uint32(data[4:])
     ack := binary.LittleEndian.Uint32(data[8:])
+    logrus.Infof("recv rrck streamid:0x%x 0x%x", st.streamid, ack)
     if st.oblkid == blkid {
 	st.oblkack = ack
     }

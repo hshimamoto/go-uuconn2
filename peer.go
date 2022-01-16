@@ -936,7 +936,8 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
 // |rsnd|spid|dpid|stream id|blockdata...|
 func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     streamid := binary.LittleEndian.Uint32(data[0:4])
-    logrus.Infof("recv rsnd streamid:0x%x", streamid)
+    blkid := binary.LittleEndian.Uint32(data[4:8])
+    logrus.Infof("recv rsnd streamid:0x%x blkid:%d", streamid, blkid)
     c, st := p.LookupConnectionAndRemoteStream(spid, data)
     if c == nil || st == nil {
 	logrus.Infof("unknown stream")
@@ -967,7 +968,8 @@ func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dp
 // |rrcv|spid|dpid|stream id|blockdata...|
 func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     streamid := binary.LittleEndian.Uint32(data[0:4])
-    logrus.Infof("recv rrcv streamid:0x%x", streamid)
+    blkid := binary.LittleEndian.Uint32(data[4:8])
+    logrus.Infof("recv rrcv streamid:0x%x blkid:%d", streamid, blkid)
     c, st := p.LookupConnectionAndLocalStream(spid, data)
     if c == nil || st == nil {
 	logrus.Infof("unknown stream")

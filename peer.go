@@ -205,7 +205,7 @@ func (blk *DataBlock)GetBlock(data []byte) {
 	return
     }
     // check
-    if nr_parts >= 32 || partid >= 32 || partlen >= 1024 {
+    if nr_parts >= 32 || partid >= 32 || partlen > 1024 {
 	// bad data
 	return
     }

@@ -4,6 +4,7 @@ package main
 import (
     "encoding/binary"
     "fmt"
+    "io"
     "math/rand"
     "net"
     "os"
@@ -151,6 +152,7 @@ type DataBlock struct {
     blkid uint32
     data []byte
     rest uint32
+    sz uint32
     msgs [32]([]byte)
 }
 
@@ -159,6 +161,7 @@ func NewDataBlock(blkid uint32) *DataBlock {
 	blkid: blkid,
 	data: nil,
 	rest: 0,
+	sz: 0,
     }
     return blk
 }
@@ -218,11 +221,15 @@ func (blk *DataBlock)GetBlock(data []byte) {
     offset := partid * 1024
     copy(blk.data[offset:], data[:partlen])
     blk.rest |= 1 << partid
+    if blk.sz < (offset + partlen) {
+	blk.sz = offset + partlen
+    }
 }
 
 func (blk *DataBlock)NextBlock() {
     blk.blkid++
     blk.rest = 0
+    blk.sz = 0
 }
 
 type Buffer struct {
@@ -247,6 +254,7 @@ type Stream struct {
     oblkack uint32
     // incoming block
     iblk *DataBlock
+    writer io.Writer
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -256,6 +264,14 @@ func NewStream(streamid uint32) *Stream {
     }
     st.iblk = NewDataBlock(0)
     return st
+}
+
+func (st *Stream)SetWriter(w io.Writer) {
+    st.writer = w
+}
+
+func (st *Stream)FlushInblock() {
+    st.writer.Write(st.iblk.data[:st.iblk.sz])
 }
 
 type Connection struct {
@@ -426,6 +442,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     ls.s_accept++
     // prepare stream
     st := ls.remote.NewLocalStream()
+    st.SetWriter(lconn)
     st.lopen = true
     // prepare message
     msg := []byte("openSSSSDDDDXXXX" + ls.raddr)
@@ -548,6 +565,8 @@ func (rs *RemoteServer)Run() {
     rs.remote.q_sendmsg <- ack
 
     st := rs.stream
+    st.SetWriter(conn)
+
     // buffer
     rbuf0 := NewBuffer()
     rbuf1 := NewBuffer()
@@ -927,6 +946,7 @@ func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dp
     binary.LittleEndian.PutUint32(rsckmsg[20:], st.iblk.rest)
     c.q_sendmsg <- rsckmsg
     if st.iblk.rest == 0xffffffff {
+	st.FlushInblock()
 	st.iblk.NextBlock()
     }
 }
@@ -957,6 +977,7 @@ func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dp
     binary.LittleEndian.PutUint32(rrckmsg[20:], st.iblk.rest)
     c.q_sendmsg <- rrckmsg
     if st.iblk.rest == 0xffffffff {
+	st.FlushInblock()
 	st.iblk.NextBlock()
     }
 }

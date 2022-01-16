@@ -2,6 +2,7 @@
 // vim: set sw=4 sts=4:
 package main
 import (
+    "net"
     "os"
     "os/exec"
     "strings"
@@ -87,7 +88,7 @@ func Scenario() {
     // find inst1 addr
     addr1 := get_addr(info1)
     addr2 := get_addr(info2)
-    peerid1 := strings.Split(strings.Split(info1, "\n")[0], " ")[1]
+    //peerid1 := strings.Split(strings.Split(info1, "\n")[0], " ")[1]
     peerid2 := strings.Split(strings.Split(info2, "\n")[0], " ")[1]
 
     logrus.Infof("addr1 = %s", addr1)
@@ -95,33 +96,59 @@ func Scenario() {
 
     time.Sleep(time.Millisecond * 100)
 
+    // start test server
+    testserv, _ := session.NewServer(":18889", func(conn net.Conn) {
+	buf := make([]byte, 256)
+	n, _ := conn.Read(buf)
+	if string(buf[:n]) == "HELLO" {
+	    conn.Write([]byte("WORLD"))
+	}
+	time.Sleep(time.Second)
+	conn.Close()
+    })
+    go testserv.Run()
+
     // ask to connect
     api("localhost:8888", "CONNECT " + addr2)
     //api("localhost:8889", "CONNECT " + addr1)
 
-    dumpinfo(5)
+    dumpinfo(3)
 
     logrus.Infof("adding localserv")
 
-    api("localhost:8888", "ADD 127.0.0.1:18888 " + peerid2 + ":127.0.0.1:22")
-    api("localhost:8889", "ADD 127.0.0.1:18889 " + peerid1 + ":127.0.0.1:22")
+    api("localhost:8888", "ADD 127.0.0.1:18888 " + peerid2 + ":127.0.0.1:18889")
 
     dumpinfo(3)
 
     // try to connect
     conn1, _ := session.Dial("127.0.0.1:18888")
-    conn2, _ := session.Dial("127.0.0.1:18889")
 
     dumpinfo(2)
 
     // try to send data in conn1
-    logrus.Infof("write HELLO in conn1")
+    logrus.Infof("write HELLO to conn1")
     conn1.Write([]byte("HELLO"))
 
     dumpinfo(2)
 
+    // try to read data
+    ticker := time.NewTicker(time.Second)
+    ch := make(chan bool)
+
+    go func() {
+	buf := make([]byte, 256)
+	n, _ := conn1.Read(buf)
+	logrus.Infof("read %s from conn1", buf[:n])
+	ch <- true
+    }()
+
+    select {
+    case <-ch:
+    case <-ticker.C:
+	logrus.Infof("Timeout")
+    }
+
     conn1.Close()
-    conn2.Close()
 
     dumpinfo(3)
 

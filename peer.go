@@ -519,6 +519,15 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 		st.oblkid++
 		st.oblkack = 0
 	    }
+	    // keep ack prev block
+	    if st.iblk.blkid > 0 {
+		// rrck
+		rrckmsg := []byte("rrckSSSSDDDDXXXXBBBBAAAA")
+		binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
+		binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid-1)
+		binary.LittleEndian.PutUint32(rrckmsg[20:], 0xffffffff)
+		ls.remote.q_sendmsg <- rrckmsg
+	    }
 	}
 	time.Sleep(time.Second)
     }
@@ -629,6 +638,15 @@ func (rs *RemoteServer)Run() {
 		st.oblk = nil
 		st.oblkid++
 		st.oblkack = 0
+	    }
+	    // keep ack prev block
+	    if st.iblk.blkid > 0 {
+		// rsck
+		rrckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
+		binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
+		binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid-1)
+		binary.LittleEndian.PutUint32(rrckmsg[20:], 0xffffffff)
+		rs.remote.q_sendmsg <- rrckmsg
 	    }
 	}
 	rs.lastUpdate = time.Now()

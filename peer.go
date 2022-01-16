@@ -201,11 +201,12 @@ func (blk *DataBlock)GetBlock(data []byte) {
     data = data[16:]
     logrus.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
     if blk.blkid != blkid {
+	logrus.Infof("blkid mismatch %d vs %d", blk.blkid, blkid)
 	// ignore
 	return
     }
     // check
-    if nr_parts >= 32 || partid >= 32 || partlen > 1024 {
+    if nr_parts > 32 || partid >= 32 || partlen > 1024 {
 	// bad data
 	return
     }

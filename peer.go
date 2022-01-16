@@ -203,8 +203,9 @@ type Stream struct {
     streamid uint32
     lopen, ropen bool
     createdTime time.Time
-    rblk *DataBlock
-    rblkid uint32
+    oblk *DataBlock
+    oblkid uint32
+    //
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -406,11 +407,11 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     // start local server local reader groutine
     go func() {
 	for running {
-	    if st.rblk == nil && currbuf.idx > 0 {
+	    if st.oblk == nil && currbuf.idx > 0 {
 		// create datablock
-		st.rblk = NewDataBlock(st.rblkid)
-		st.rblk.SetupMessages(currbuf.data[:currbuf.idx])
-		st.rblkid++
+		st.oblk = NewDataBlock(st.oblkid)
+		st.oblk.SetupMessages(currbuf.data[:currbuf.idx])
+		st.oblkid++
 		// swap
 		tmpbuf := currbuf
 		currbuf = blkbuf
@@ -435,13 +436,13 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 	}
     }()
     for running {
-	if st.rblk != nil {
+	if st.oblk != nil {
 	    // send rsnd message
 	    for i := 0; i < 32; i++ {
-		if st.rblk.rest & (1 << i) == 0 {
+		if st.oblk.rest & (1 << i) == 0 {
 		    continue
 		}
-		msg := st.rblk.msgs[i]
+		msg := st.oblk.msgs[i]
 		// fixup msg
 		copy(msg[0:4], []byte("rsnd"))
 		binary.LittleEndian.PutUint32(msg[12:], st.streamid)
@@ -509,11 +510,11 @@ func (rs *RemoteServer)Run() {
     // start remote server local reader gorutine
     go func() {
 	for rs.running {
-	    if st.rblk == nil && currbuf.idx > 0 {
+	    if st.oblk == nil && currbuf.idx > 0 {
 		// create datablock
-		st.rblk = NewDataBlock(st.rblkid)
-		st.rblk.SetupMessages(currbuf.data[:currbuf.idx])
-		st.rblkid++
+		st.oblk = NewDataBlock(st.oblkid)
+		st.oblk.SetupMessages(currbuf.data[:currbuf.idx])
+		st.oblkid++
 		// swap
 		tmpbuf := currbuf
 		currbuf = blkbuf
@@ -537,13 +538,13 @@ func (rs *RemoteServer)Run() {
 	}
     }()
     for rs.running {
-	if st.rblk != nil {
+	if st.oblk != nil {
 	    // send rrcv messages
 	    for i := 0; i < 32; i++ {
-		if st.rblk.rest & (1 << i) == 0 {
+		if st.oblk.rest & (1 << i) == 0 {
 		    continue
 		}
-		msg := st.rblk.msgs[i]
+		msg := st.oblk.msgs[i]
 		// fixup msg
 		copy(msg[0:4], []byte("rrcv"))
 		binary.LittleEndian.PutUint32(msg[12:], st.streamid)

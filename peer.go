@@ -157,6 +157,7 @@ type DataBlock struct {
 func NewDataBlock(blkid uint32) *DataBlock {
     blk := &DataBlock{
 	blkid: blkid,
+	data: nil,
 	rest: 0,
     }
     return blk
@@ -187,6 +188,43 @@ func (blk *DataBlock)SetupMessages(data []byte) {
     logrus.Infof("%d parts rest 0x%x", nparts, blk.rest)
 }
 
+func (blk *DataBlock)GetBlock(data []byte) {
+    blkid := binary.LittleEndian.Uint32(data[0:4])
+    nr_parts := binary.LittleEndian.Uint32(data[4:8])
+    partid := binary.LittleEndian.Uint32(data[8:12])
+    partlen := binary.LittleEndian.Uint32(data[12:16])
+    data = data[16:]
+    logrus.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
+    if blk.blkid != blkid {
+	// ignore
+	return
+    }
+    // check
+    if nr_parts >= 32 || partid >= 32 || partlen >= 1024 {
+	// bad data
+	return
+    }
+    // fill bits
+    for i := nr_parts; i < 32; i++ {
+	blk.rest |= 1 << i
+    }
+    // already have?
+    if (blk.rest & (1 << partid)) != 0 {
+	return
+    }
+    if blk.data == nil {
+	blk.data = make([]byte, 32768)
+    }
+    offset := partid * 1024
+    copy(blk.data[offset:], data[:partlen])
+    blk.rest |= 1 << partid
+}
+
+func (blk *DataBlock)NextBlock() {
+    blk.blkid++
+    blk.rest = 0
+}
+
 type Buffer struct {
     data []byte
     idx int
@@ -203,9 +241,11 @@ type Stream struct {
     streamid uint32
     lopen, ropen bool
     createdTime time.Time
+    // outgoing block
     oblk *DataBlock
     oblkid uint32
-    //
+    // incoming block
+    iblk *DataBlock
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -213,6 +253,7 @@ func NewStream(streamid uint32) *Stream {
 	streamid: streamid,
 	createdTime: time.Now(),
     }
+    st.iblk = NewDataBlock(0)
     return st
 }
 
@@ -868,13 +909,14 @@ func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dp
     if len(data) <= 16 {
 	return
     }
-    blkid := binary.LittleEndian.Uint32(data[0:4])
-    nr_parts := binary.LittleEndian.Uint32(data[4:8])
-    partid := binary.LittleEndian.Uint32(data[8:12])
-    partlen := binary.LittleEndian.Uint32(data[12:16])
-    data = data[16:]
-    logrus.Infof("rsnd 0x%x 0x%x %d %d %d %d %d",
-	    c.peerid, st.streamid, blkid, nr_parts, partid, partlen, len(data))
+    // check incoming block
+    st.iblk.GetBlock(data)
+    // send ack
+    rsckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
+    binary.LittleEndian.PutUint32(rsckmsg[12:], st.streamid)
+    binary.LittleEndian.PutUint32(rsckmsg[16:], st.iblk.blkid)
+    binary.LittleEndian.PutUint32(rsckmsg[20:], st.iblk.rest)
+    c.q_sendmsg <- rsckmsg
 }
 
 // Remote Recv
@@ -894,13 +936,26 @@ func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dp
     if len(data) <= 16 {
 	return
     }
-    blkid := binary.LittleEndian.Uint32(data[0:4])
-    nr_parts := binary.LittleEndian.Uint32(data[4:8])
-    partid := binary.LittleEndian.Uint32(data[8:12])
-    partlen := binary.LittleEndian.Uint32(data[12:16])
-    data = data[16:]
-    logrus.Infof("rrcv 0x%x 0x%x %d %d %d %d %d",
-	    c.peerid, st.streamid, blkid, nr_parts, partid, partlen, len(data))
+    // check incoming block
+    st.iblk.GetBlock(data)
+    // send ack
+    rrckmsg := []byte("rrckSSSSDDDDXXXXBBBBAAAA")
+    binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
+    binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid)
+    binary.LittleEndian.PutUint32(rrckmsg[20:], st.iblk.rest)
+    c.q_sendmsg <- rrckmsg
+}
+
+// Remote Send Ack
+//  LocalServer read and transfer data to remote stream
+// |rsck|spid|dpid|stream id|blockdata...|
+func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+}
+
+// Remote Recv Ack
+//  LocalServer read and transfer data to remote stream
+// |rrck|spid|dpid|stream id|blockdata...|
+func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
 }
 
 func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
@@ -934,6 +989,8 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     case "oack": p.UDP_handler_OpenAck(s, addr, spid, dpid, data)
     case "rsnd": p.UDP_handler_RemoteSend(s, addr, spid, dpid, data)
     case "rrcv": p.UDP_handler_RemoteRecv(s, addr, spid, dpid, data)
+    case "rsck": p.UDP_handler_RemoteSendAck(s, addr, spid, dpid, data)
+    case "rrck": p.UDP_handler_RemoteRecvAck(s, addr, spid, dpid, data)
     default:
 	logrus.Infof("msg code [%s] 0x%x 0x%x", code, spid, dpid)
     }

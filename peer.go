@@ -394,23 +394,60 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 	logrus.Infof("stream not opened")
 	return
     }
-    // read data
-    buf := make([]byte, 256)
-    n, err := lconn.Read(buf)
-    if n <= 0 {
-	logrus.Infof("Read: %v", err)
-	return
+
+    running := true
+    // buffer
+    rbuf0 := NewBuffer()
+    rbuf1 := NewBuffer()
+    currbuf := rbuf0
+    blkbuf := rbuf1
+    // start local server local reader groutine
+    go func() {
+	for running {
+	    if st.rblk == nil && currbuf.idx > 0 {
+		// create datablock
+		st.rblk = NewDataBlock(st.rblkid, currbuf.data[:currbuf.idx])
+		st.rblkid++
+		// swap
+		tmpbuf := currbuf
+		currbuf = blkbuf
+		blkbuf = tmpbuf
+		currbuf.idx = 0
+		continue
+	    }
+	    rest := len(currbuf.data) - currbuf.idx
+	    if rest <= 0 {
+		// no buffer
+		time.Sleep(time.Second)
+		continue
+	    }
+	    n, err := lconn.Read(currbuf.data[currbuf.idx:])
+	    if n <= 0 {
+		logrus.Infof("Read: %v", err)
+		// close?
+		running = false
+		break
+	    }
+	    currbuf.idx += n
+	}
+    }()
+    for running {
+	if st.rblk != nil {
+	    // send rsnd message
+	    for i := 0; i < 32; i++ {
+		if st.rblk.rest & (1 << i) == 0 {
+		    continue
+		}
+		msg := st.rblk.msgs[i]
+		// fixup msg
+		copy(msg[0:4], []byte("rsnd"))
+		binary.LittleEndian.PutUint32(msg[12:], st.streamid)
+		ls.remote.q_sendmsg <- msg
+	    }
+	}
+	time.Sleep(time.Second)
     }
-    // send the data to remote
-    rsndmsg := make([]byte, 12+4+16+n)
-    copy(rsndmsg, []byte("rsnd"))
-    binary.LittleEndian.PutUint32(rsndmsg[12+ 0:], st.streamid) // streamid
-    binary.LittleEndian.PutUint32(rsndmsg[16+ 0:], 0) // blkid
-    binary.LittleEndian.PutUint32(rsndmsg[16+ 4:], 1) // nr parts
-    binary.LittleEndian.PutUint32(rsndmsg[16+ 8:], 0) // partid
-    binary.LittleEndian.PutUint32(rsndmsg[16+12:], uint32(n)) // part len
-    copy(rsndmsg[16+16:], buf[:n])
-    ls.remote.q_sendmsg <- rsndmsg
+    logrus.Infof("LocalServer: handler done")
 }
 
 func (ls *LocalServer)Run() {
@@ -466,7 +503,7 @@ func (rs *RemoteServer)Run() {
     rbuf1 := NewBuffer()
     currbuf := rbuf0
     blkbuf := rbuf1
-    // start local reader gorutine
+    // start remote server local reader gorutine
     go func() {
 	for rs.running {
 	    if st.rblk == nil && currbuf.idx > 0 {

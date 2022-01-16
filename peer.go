@@ -154,12 +154,15 @@ type DataBlock struct {
     msgs [32]([]byte)
 }
 
-func NewDataBlock(blkid uint32, data []byte) *DataBlock {
+func NewDataBlock(blkid uint32) *DataBlock {
     blk := &DataBlock{
 	blkid: blkid,
-	data: data,
 	rest: 0,
     }
+    return blk
+}
+
+func (blk *DataBlock)SetupMessages(data []byte) {
     nparts := (len(data) + 1023) / 1024
     l := len(data)
     for i := 0; i < 32; i++ {
@@ -169,7 +172,7 @@ func NewDataBlock(blkid uint32, data []byte) *DataBlock {
 	    n = 1024
 	}
 	msg := make([]byte, 12+4+16+n)
-	binary.LittleEndian.PutUint32(msg[16 +  0:], blkid)
+	binary.LittleEndian.PutUint32(msg[16 +  0:], blk.blkid)
 	binary.LittleEndian.PutUint32(msg[16 +  4:], uint32(nparts))
 	binary.LittleEndian.PutUint32(msg[16 +  8:], uint32(i))
 	binary.LittleEndian.PutUint32(msg[16 + 12:], uint32(n))
@@ -182,7 +185,6 @@ func NewDataBlock(blkid uint32, data []byte) *DataBlock {
 	}
     }
     logrus.Infof("%d parts rest 0x%x", nparts, blk.rest)
-    return blk
 }
 
 type Buffer struct {
@@ -406,7 +408,8 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 	for running {
 	    if st.rblk == nil && currbuf.idx > 0 {
 		// create datablock
-		st.rblk = NewDataBlock(st.rblkid, currbuf.data[:currbuf.idx])
+		st.rblk = NewDataBlock(st.rblkid)
+		st.rblk.SetupMessages(currbuf.data[:currbuf.idx])
 		st.rblkid++
 		// swap
 		tmpbuf := currbuf
@@ -508,7 +511,8 @@ func (rs *RemoteServer)Run() {
 	for rs.running {
 	    if st.rblk == nil && currbuf.idx > 0 {
 		// create datablock
-		st.rblk = NewDataBlock(st.rblkid, currbuf.data[:currbuf.idx])
+		st.rblk = NewDataBlock(st.rblkid)
+		st.rblk.SetupMessages(currbuf.data[:currbuf.idx])
 		st.rblkid++
 		// swap
 		tmpbuf := currbuf

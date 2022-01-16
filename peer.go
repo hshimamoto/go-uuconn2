@@ -244,6 +244,7 @@ type Stream struct {
     // outgoing block
     oblk *DataBlock
     oblkid uint32
+    oblkack uint32
     // incoming block
     iblk *DataBlock
 }
@@ -452,7 +453,6 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 		// create datablock
 		st.oblk = NewDataBlock(st.oblkid)
 		st.oblk.SetupMessages(currbuf.data[:currbuf.idx])
-		st.oblkid++
 		// swap
 		tmpbuf := currbuf
 		currbuf = blkbuf
@@ -488,6 +488,11 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 		copy(msg[0:4], []byte("rsnd"))
 		binary.LittleEndian.PutUint32(msg[12:], st.streamid)
 		ls.remote.q_sendmsg <- msg
+	    }
+	    if st.oblkack == 0xffffffff {
+		st.oblk = nil
+		st.oblkid++
+		st.oblkack = 0
 	    }
 	}
 	time.Sleep(time.Second)
@@ -555,7 +560,6 @@ func (rs *RemoteServer)Run() {
 		// create datablock
 		st.oblk = NewDataBlock(st.oblkid)
 		st.oblk.SetupMessages(currbuf.data[:currbuf.idx])
-		st.oblkid++
 		// swap
 		tmpbuf := currbuf
 		currbuf = blkbuf
@@ -590,6 +594,11 @@ func (rs *RemoteServer)Run() {
 		copy(msg[0:4], []byte("rrcv"))
 		binary.LittleEndian.PutUint32(msg[12:], st.streamid)
 		rs.remote.q_sendmsg <- msg
+	    }
+	    if st.oblkack == 0xffffffff {
+		st.oblk = nil
+		st.oblkid++
+		st.oblkack = 0
 	    }
 	}
 	rs.lastUpdate = time.Now()
@@ -917,6 +926,9 @@ func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dp
     binary.LittleEndian.PutUint32(rsckmsg[16:], st.iblk.blkid)
     binary.LittleEndian.PutUint32(rsckmsg[20:], st.iblk.rest)
     c.q_sendmsg <- rsckmsg
+    if st.iblk.rest == 0xffffffff {
+	st.iblk.NextBlock()
+    }
 }
 
 // Remote Recv
@@ -944,18 +956,41 @@ func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dp
     binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid)
     binary.LittleEndian.PutUint32(rrckmsg[20:], st.iblk.rest)
     c.q_sendmsg <- rrckmsg
+    if st.iblk.rest == 0xffffffff {
+	st.iblk.NextBlock()
+    }
 }
 
 // Remote Send Ack
 //  LocalServer read and transfer data to remote stream
-// |rsck|spid|dpid|stream id|blockdata...|
+// |rsck|spid|dpid|stream id|blkid|ack|
 func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    c, st := p.LookupConnectionAndRemoteStream(spid, data)
+    if c == nil || st == nil {
+	logrus.Infof("unknown stream")
+	return
+    }
+    blkid := binary.LittleEndian.Uint32(data[4:])
+    ack := binary.LittleEndian.Uint32(data[8:])
+    if st.oblkid == blkid {
+	st.oblkack = ack
+    }
 }
 
 // Remote Recv Ack
 //  LocalServer read and transfer data to remote stream
-// |rrck|spid|dpid|stream id|blockdata...|
+// |rrck|spid|dpid|stream id|blockid|ack|
 func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    c, st := p.LookupConnectionAndLocalStream(spid, data)
+    if c == nil || st == nil {
+	logrus.Infof("unknown stream")
+	return
+    }
+    blkid := binary.LittleEndian.Uint32(data[4:])
+    ack := binary.LittleEndian.Uint32(data[8:])
+    if st.oblkid == blkid {
+	st.oblkack = ack
+    }
 }
 
 func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {

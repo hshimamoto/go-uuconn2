@@ -304,6 +304,16 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
     }
 }
 
+func (st *Stream)CheckOutblockAck() {
+    st.m.Lock()
+    defer st.m.Unlock()
+    if st.oblkack == 0xffffffff {
+	st.oblk = nil
+	st.oblkid++
+	st.oblkack = 0
+    }
+}
+
 func (st *Stream)SelfReader(conn net.Conn) {
     curr := NewBuffer()
     prev := NewBuffer()
@@ -542,11 +552,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     for running {
 	if st.oblk != nil {
 	    st.SendBlock("rsnd", ls.remote.q_sendmsg)
-	    if st.oblkack == 0xffffffff {
-		st.oblk = nil
-		st.oblkid++
-		st.oblkack = 0
-	    }
+	    st.CheckOutblockAck()
 	    // keep ack prev block
 	    if st.iblk.blkid > 0 {
 		// rrck
@@ -617,11 +623,7 @@ func (rs *RemoteServer)Run() {
     for rs.running {
 	if st.oblk != nil {
 	    st.SendBlock("rrcv", rs.remote.q_sendmsg)
-	    if st.oblkack == 0xffffffff {
-		st.oblk = nil
-		st.oblkid++
-		st.oblkack = 0
-	    }
+	    st.CheckOutblockAck()
 	    // keep ack prev block
 	    if st.iblk.blkid > 0 {
 		// rsck

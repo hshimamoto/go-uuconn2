@@ -262,6 +262,7 @@ type Stream struct {
     m sync.Mutex
     //
     ack bool
+    q_work chan bool
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -271,6 +272,7 @@ func NewStream(streamid uint32) *Stream {
     }
     st.oblk = NewDataBlock(0)
     st.iblk = NewDataBlock(0)
+    st.q_work = make(chan bool, 16)
     return st
 }
 
@@ -330,6 +332,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		st.m.Lock()
 		st.oblk.SetupMessages(curr.data[:curr.idx])
 		st.m.Unlock()
+		st.q_work <- true
 		// done if closed
 		if closed {
 		    return
@@ -465,6 +468,16 @@ func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
     return nil
 }
 
+func (c *Connection)KickStreams() {
+    logrus.Infof("KickStreams")
+    for _, st := range c.lstreams {
+	st.q_work <- true
+    }
+    for _, st := range c.rstreams {
+	st.q_work <- true
+    }
+}
+
 func (c *Connection)Run(q chan UDPMessage) {
     c.running = true
     for c.running {
@@ -549,6 +562,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     running := true
     // start local server local reader groutine
     go st.SelfReader(lconn)
+    lastAck := time.Now()
     for running {
 	if st.oblk != nil {
 	    st.SendBlock("rsnd", ls.remote.q_sendmsg)
@@ -565,19 +579,22 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 	}
 	st.m.Lock()
 	if st.ack {
-	    rrckmsg := []byte("rrckSSSSDDDDXXXXBBBBAAAA")
-	    binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
-	    binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid)
-	    binary.LittleEndian.PutUint32(rrckmsg[20:], st.iblk.rest)
-	    ls.remote.q_sendmsg <- rrckmsg
-	    st.ack = false
+	    if st.iblk.rest == 0xffffffff || time.Since(lastAck) > time.Millisecond * 10 {
+		rrckmsg := []byte("rrckSSSSDDDDXXXXBBBBAAAA")
+		binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
+		binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid)
+		binary.LittleEndian.PutUint32(rrckmsg[20:], st.iblk.rest)
+		ls.remote.q_sendmsg <- rrckmsg
+		st.ack = false
+		lastAck = time.Now()
+	    }
 	}
 	if st.iblk.rest == 0xffffffff {
 	    st.FlushInblock()
 	    st.iblk.NextBlock()
 	}
 	st.m.Unlock()
-	time.Sleep(time.Second)
+	<-st.q_work
     }
     logrus.Infof("LocalServer: handler done")
 }
@@ -634,6 +651,7 @@ func (rs *RemoteServer)Run() {
 
     // start remote server local reader gorutine
     go st.SelfReader(conn)
+    lastAck := time.Now()
     for rs.running {
 	if st.oblk != nil {
 	    st.SendBlock("rrcv", rs.remote.q_sendmsg)
@@ -650,12 +668,14 @@ func (rs *RemoteServer)Run() {
 	}
 	st.m.Lock()
 	if st.ack {
-	    rrckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
-	    binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
-	    binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid)
-	    binary.LittleEndian.PutUint32(rrckmsg[20:], st.iblk.rest)
-	    rs.remote.q_sendmsg <- rrckmsg
-	    st.ack = false
+	    if st.iblk.rest == 0xffffffff || time.Since(lastAck) > time.Millisecond * 10 {
+		rrckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
+		binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
+		binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid)
+		binary.LittleEndian.PutUint32(rrckmsg[20:], st.iblk.rest)
+		rs.remote.q_sendmsg <- rrckmsg
+		st.ack = false
+	    }
 	}
 	if st.iblk.rest == 0xffffffff {
 	    st.FlushInblock()
@@ -663,7 +683,7 @@ func (rs *RemoteServer)Run() {
 	}
 	st.m.Unlock()
 	rs.lastUpdate = time.Now()
-	time.Sleep(time.Second)
+	<-st.q_work
     }
 }
 
@@ -981,13 +1001,18 @@ func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dp
 	return
     }
     // check incoming block
+    wakeup := false
     st.m.Lock()
     prevack := st.iblk.rest
     st.iblk.GetBlock(data)
     if st.iblk.rest != prevack {
 	st.ack = true
+	wakeup = true
     }
     st.m.Unlock()
+    if wakeup {
+	st.q_work <- true
+    }
 }
 
 // Remote Recv
@@ -1009,13 +1034,18 @@ func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dp
 	return
     }
     // check incoming block
+    wakeup := false
     st.m.Lock()
     prevack := st.iblk.rest
     st.iblk.GetBlock(data)
     if st.iblk.rest != prevack {
 	st.ack = true
+	wakeup = true
     }
     st.m.Unlock()
+    if wakeup {
+	st.q_work <- true
+    }
 }
 
 // Remote Send Ack
@@ -1032,6 +1062,7 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
     logrus.Infof("recv rsck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     if st.oblk.blkid == blkid {
 	st.oblkack |= ack
+	st.q_work <- true
     }
 }
 
@@ -1049,6 +1080,7 @@ func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid,
     logrus.Infof("recv rrck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     if st.oblk.blkid == blkid {
 	st.oblkack |= ack
+	st.q_work <- true
     }
 }
 
@@ -1244,6 +1276,15 @@ func (p *Peer)Housekeeper() {
 		p.lastCheck = time.Now()
 	    }
 	}
+	// kick streams
+	p.m.Lock()
+	for _, serv := range p.lservs {
+	    serv.remote.KickStreams()
+	}
+	for _, serv := range p.rservs {
+	    serv.remote.KickStreams()
+	}
+	p.m.Unlock()
 	time.Sleep(time.Second * 5)
     }
 }

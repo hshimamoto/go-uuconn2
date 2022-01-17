@@ -1027,7 +1027,7 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
     ack := binary.LittleEndian.Uint32(data[8:])
     logrus.Infof("recv rsck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     if st.oblkid == blkid {
-	st.oblkack = ack
+	st.oblkack |= ack
     }
 }
 
@@ -1044,7 +1044,7 @@ func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid,
     ack := binary.LittleEndian.Uint32(data[8:])
     logrus.Infof("recv rrck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     if st.oblkid == blkid {
-	st.oblkack = ack
+	st.oblkack |= ack
     }
 }
 

@@ -573,18 +573,16 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     go st.SelfReader(lconn)
     lastAck := time.Now()
     for running {
-	if st.oblk != nil {
-	    st.SendBlock("rsnd", ls.remote.q_sendmsg)
-	    st.CheckOutblockAck()
-	    // keep ack prev block
-	    if st.iblk.blkid > 0 {
-		// rrck
-		rrckmsg := []byte("rrckSSSSDDDDXXXXBBBBAAAA")
-		binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
-		binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid-1)
-		binary.LittleEndian.PutUint32(rrckmsg[20:], 0xffffffff)
-		ls.remote.q_sendmsg <- rrckmsg
-	    }
+	st.SendBlock("rsnd", ls.remote.q_sendmsg)
+	st.CheckOutblockAck()
+	// keep ack prev block
+	if st.iblk.blkid > 0 {
+	    // rrck
+	    rrckmsg := []byte("rrckSSSSDDDDXXXXBBBBAAAA")
+	    binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
+	    binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid-1)
+	    binary.LittleEndian.PutUint32(rrckmsg[20:], 0xffffffff)
+	    ls.remote.q_sendmsg <- rrckmsg
 	}
 	st.m.Lock()
 	if st.ack {
@@ -662,18 +660,16 @@ func (rs *RemoteServer)Run() {
     go st.SelfReader(conn)
     lastAck := time.Now()
     for rs.running {
-	if st.oblk != nil {
-	    st.SendBlock("rrcv", rs.remote.q_sendmsg)
-	    st.CheckOutblockAck()
-	    // keep ack prev block
-	    if st.iblk.blkid > 0 {
-		// rsck
-		rsckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
-		binary.LittleEndian.PutUint32(rsckmsg[12:], st.streamid)
-		binary.LittleEndian.PutUint32(rsckmsg[16:], st.iblk.blkid-1)
-		binary.LittleEndian.PutUint32(rsckmsg[20:], 0xffffffff)
-		rs.remote.q_sendmsg <- rsckmsg
-	    }
+	st.SendBlock("rrcv", rs.remote.q_sendmsg)
+	st.CheckOutblockAck()
+	// keep ack prev block
+	if st.iblk.blkid > 0 {
+	    // rsck
+	    rsckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
+	    binary.LittleEndian.PutUint32(rsckmsg[12:], st.streamid)
+	    binary.LittleEndian.PutUint32(rsckmsg[16:], st.iblk.blkid-1)
+	    binary.LittleEndian.PutUint32(rsckmsg[20:], 0xffffffff)
+	    rs.remote.q_sendmsg <- rsckmsg
 	}
 	st.m.Lock()
 	if st.ack {

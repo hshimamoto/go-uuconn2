@@ -263,6 +263,7 @@ type Stream struct {
     //
     ack bool
     q_work chan bool
+    q_acked chan bool
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -273,6 +274,7 @@ func NewStream(streamid uint32) *Stream {
     st.oblk = NewDataBlock(0)
     st.iblk = NewDataBlock(0)
     st.q_work = make(chan bool, 16)
+    st.q_acked = make(chan bool, 16)
     return st
 }
 
@@ -309,11 +311,16 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 }
 
 func (st *Stream)CheckOutblockAck() {
+    acked := false
     st.m.Lock()
-    defer st.m.Unlock()
     if st.oblkack == 0xffffffff {
 	st.oblk.NextBlock()
 	st.oblkack = 0
+	acked = true
+    }
+    st.m.Unlock()
+    if acked {
+	st.q_acked <- true
     }
 }
 
@@ -351,7 +358,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	}
 	if len(curr.data) - curr.idx <= 0 {
 	    // no enough buffer
-	    time.Sleep(time.Second)
+	    <-st.q_acked
 	    continue
 	}
 	n, err := conn.Read(curr.data[curr.idx:])
@@ -472,9 +479,11 @@ func (c *Connection)KickStreams() {
     logrus.Infof("KickStreams")
     for _, st := range c.lstreams {
 	st.q_work <- true
+	st.q_acked <- true
     }
     for _, st := range c.rstreams {
 	st.q_work <- true
+	st.q_acked <- true
     }
 }
 

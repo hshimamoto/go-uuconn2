@@ -259,6 +259,8 @@ type Stream struct {
     // incoming block
     iblk *DataBlock
     writer io.Writer
+    // mutex
+    m sync.Mutex
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -277,6 +279,54 @@ func (st *Stream)SetWriter(w io.Writer) {
 func (st *Stream)FlushInblock() {
     logrus.Infof("Flush %d bytes", st.iblk.sz)
     st.writer.Write(st.iblk.data[:st.iblk.sz])
+}
+
+func (st *Stream)SelfReader(conn net.Conn) {
+    curr := NewBuffer()
+    prev := NewBuffer()
+    closed := false
+    // TODO running flag?
+    for {
+	if curr.idx > 0 {
+	    st.m.Lock()
+	    oblk := st.oblk
+	    st.m.Unlock()
+	    if oblk == nil {
+		// create DataBlock
+		st.m.Lock()
+		st.oblk = NewDataBlock(st.oblkid)
+		st.oblk.SetupMessages(curr.data[:curr.idx])
+		st.m.Unlock()
+		// done if closed
+		if closed {
+		    return
+		}
+		// swap
+		tmp := curr
+		curr = prev
+		prev = tmp
+		curr.idx = 0
+		continue
+	    }
+	}
+	if closed {
+	    time.Sleep(time.Second)
+	    continue
+	}
+	if len(curr.data) - curr.idx <= 0 {
+	    // no enough buffer
+	    time.Sleep(time.Second)
+	    continue
+	}
+	n, err := conn.Read(curr.data[curr.idx:])
+	if n <= 0 {
+	    logrus.Infof("Read: %v", err)
+	    // close?
+	    closed = true
+	    continue
+	}
+	curr.idx += n
+    }
 }
 
 type Connection struct {
@@ -464,41 +514,8 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     }
 
     running := true
-    // buffer
-    rbuf0 := NewBuffer()
-    rbuf1 := NewBuffer()
-    currbuf := rbuf0
-    blkbuf := rbuf1
     // start local server local reader groutine
-    go func() {
-	for running {
-	    if st.oblk == nil && currbuf.idx > 0 {
-		// create datablock
-		st.oblk = NewDataBlock(st.oblkid)
-		st.oblk.SetupMessages(currbuf.data[:currbuf.idx])
-		// swap
-		tmpbuf := currbuf
-		currbuf = blkbuf
-		blkbuf = tmpbuf
-		currbuf.idx = 0
-		continue
-	    }
-	    rest := len(currbuf.data) - currbuf.idx
-	    if rest <= 0 {
-		// no buffer
-		time.Sleep(time.Second)
-		continue
-	    }
-	    n, err := lconn.Read(currbuf.data[currbuf.idx:])
-	    if n <= 0 {
-		logrus.Infof("Read: %v", err)
-		// close?
-		running = false
-		break
-	    }
-	    currbuf.idx += n
-	}
-    }()
+    go st.SelfReader(lconn)
     for running {
 	if st.oblk != nil {
 	    // send rsnd message
@@ -585,40 +602,8 @@ func (rs *RemoteServer)Run() {
     st := rs.stream
     st.SetWriter(conn)
 
-    // buffer
-    rbuf0 := NewBuffer()
-    rbuf1 := NewBuffer()
-    currbuf := rbuf0
-    blkbuf := rbuf1
     // start remote server local reader gorutine
-    go func() {
-	for rs.running {
-	    if st.oblk == nil && currbuf.idx > 0 {
-		// create datablock
-		st.oblk = NewDataBlock(st.oblkid)
-		st.oblk.SetupMessages(currbuf.data[:currbuf.idx])
-		// swap
-		tmpbuf := currbuf
-		currbuf = blkbuf
-		blkbuf = tmpbuf
-		currbuf.idx = 0
-		continue
-	    }
-	    rest := len(currbuf.data) - currbuf.idx
-	    if rest <= 0 {
-		// no buffer
-		time.Sleep(time.Second)
-		continue
-	    }
-	    n, err := conn.Read(currbuf.data[currbuf.idx:])
-	    if n <= 0 {
-		logrus.Infof("Read: %v", err)
-		// close?
-		break
-	    }
-	    currbuf.idx += n
-	}
-    }()
+    go st.SelfReader(conn)
     for rs.running {
 	if st.oblk != nil {
 	    // send rrcv messages

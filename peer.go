@@ -254,7 +254,6 @@ type Stream struct {
     createdTime time.Time
     // outgoing block
     oblk *DataBlock
-    oblkid uint32
     oblkack uint32
     // incoming block
     iblk *DataBlock
@@ -268,6 +267,7 @@ func NewStream(streamid uint32) *Stream {
 	streamid: streamid,
 	createdTime: time.Now(),
     }
+    st.oblk = NewDataBlock(0)
     st.iblk = NewDataBlock(0)
     return st
 }
@@ -308,8 +308,7 @@ func (st *Stream)CheckOutblockAck() {
     st.m.Lock()
     defer st.m.Unlock()
     if st.oblkack == 0xffffffff {
-	st.oblk = nil
-	st.oblkid++
+	st.oblk.NextBlock()
 	st.oblkack = 0
     }
 }
@@ -322,12 +321,11 @@ func (st *Stream)SelfReader(conn net.Conn) {
     for {
 	if curr.idx > 0 {
 	    st.m.Lock()
-	    oblk := st.oblk
+	    rest := st.oblk.rest
 	    st.m.Unlock()
-	    if oblk == nil {
+	    if rest == 0 {
 		// create DataBlock
 		st.m.Lock()
-		st.oblk = NewDataBlock(st.oblkid)
 		st.oblk.SetupMessages(curr.data[:curr.idx])
 		st.m.Unlock()
 		// done if closed
@@ -1010,7 +1008,7 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
     blkid := binary.LittleEndian.Uint32(data[4:])
     ack := binary.LittleEndian.Uint32(data[8:])
     logrus.Infof("recv rsck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
-    if st.oblkid == blkid {
+    if st.oblk.blkid == blkid {
 	st.oblkack |= ack
     }
 }
@@ -1027,7 +1025,7 @@ func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid,
     blkid := binary.LittleEndian.Uint32(data[4:])
     ack := binary.LittleEndian.Uint32(data[8:])
     logrus.Infof("recv rrck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
-    if st.oblkid == blkid {
+    if st.oblk.blkid == blkid {
 	st.oblkack |= ack
     }
 }

@@ -310,6 +310,25 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
     }
 }
 
+func (st *Stream)GetAck(blkid, ack uint32) {
+    wakeup := false
+    st.m.Lock()
+    if st.oblk.blkid == blkid {
+	st.oblkack |= ack
+	wakeup = true
+    } else if st.oblk.blkid == blkid - 1 {
+	if ack == 0 {
+	    // catch next block ack
+	    st.oblkack = 0xffffffff
+	    wakeup = true
+	}
+    }
+    st.m.Unlock()
+    if wakeup {
+	st.q_work <- true
+    }
+}
+
 func (st *Stream)CheckOutblockAck() {
     acked := false
     st.m.Lock()
@@ -575,15 +594,6 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     for running {
 	st.SendBlock("rsnd", ls.remote.q_sendmsg)
 	st.CheckOutblockAck()
-	// keep ack prev block
-	if st.iblk.blkid > 0 {
-	    // rrck
-	    rrckmsg := []byte("rrckSSSSDDDDXXXXBBBBAAAA")
-	    binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
-	    binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid-1)
-	    binary.LittleEndian.PutUint32(rrckmsg[20:], 0xffffffff)
-	    ls.remote.q_sendmsg <- rrckmsg
-	}
 	st.m.Lock()
 	if st.ack {
 	    if st.iblk.rest == 0xffffffff || time.Since(lastAck) > time.Millisecond * 10 {
@@ -662,15 +672,6 @@ func (rs *RemoteServer)Run() {
     for rs.running {
 	st.SendBlock("rrcv", rs.remote.q_sendmsg)
 	st.CheckOutblockAck()
-	// keep ack prev block
-	if st.iblk.blkid > 0 {
-	    // rsck
-	    rsckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
-	    binary.LittleEndian.PutUint32(rsckmsg[12:], st.streamid)
-	    binary.LittleEndian.PutUint32(rsckmsg[16:], st.iblk.blkid-1)
-	    binary.LittleEndian.PutUint32(rsckmsg[20:], 0xffffffff)
-	    rs.remote.q_sendmsg <- rsckmsg
-	}
 	st.m.Lock()
 	if st.ack {
 	    if st.iblk.rest == 0xffffffff || time.Since(lastAck) > time.Millisecond * 10 {
@@ -1065,10 +1066,7 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
     blkid := binary.LittleEndian.Uint32(data[4:])
     ack := binary.LittleEndian.Uint32(data[8:])
     logrus.Infof("recv rsck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
-    if st.oblk.blkid == blkid {
-	st.oblkack |= ack
-	st.q_work <- true
-    }
+    st.GetAck(blkid, ack)
 }
 
 // Remote Recv Ack
@@ -1083,10 +1081,7 @@ func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid,
     blkid := binary.LittleEndian.Uint32(data[4:])
     ack := binary.LittleEndian.Uint32(data[8:])
     logrus.Infof("recv rrck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
-    if st.oblk.blkid == blkid {
-	st.oblkack |= ack
-	st.q_work <- true
-    }
+    st.GetAck(blkid, ack)
 }
 
 func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {

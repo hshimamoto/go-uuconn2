@@ -643,11 +643,11 @@ func (rs *RemoteServer)Run() {
 	    // keep ack prev block
 	    if st.iblk.blkid > 0 {
 		// rsck
-		rrckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
-		binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
-		binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid-1)
-		binary.LittleEndian.PutUint32(rrckmsg[20:], 0xffffffff)
-		rs.remote.q_sendmsg <- rrckmsg
+		rsckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
+		binary.LittleEndian.PutUint32(rsckmsg[12:], st.streamid)
+		binary.LittleEndian.PutUint32(rsckmsg[16:], st.iblk.blkid-1)
+		binary.LittleEndian.PutUint32(rsckmsg[20:], 0xffffffff)
+		rs.remote.q_sendmsg <- rsckmsg
 	    }
 	}
 	rs.lastUpdate = time.Now()

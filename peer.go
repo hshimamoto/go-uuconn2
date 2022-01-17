@@ -281,6 +281,29 @@ func (st *Stream)FlushInblock() {
     st.writer.Write(st.iblk.data[:st.iblk.sz])
 }
 
+func (st *Stream)SendBlock(code string, q chan []byte) {
+    st.m.Lock()
+    oblk := st.oblk
+    acked := st.oblkack
+    st.m.Unlock()
+    if oblk == nil {
+	return
+    }
+    for i := 0; i < 32; i++ {
+	if oblk.rest & (1 << i) == 0 {
+	    continue
+	}
+	if acked & (1 << i) != 0 {
+	    continue
+	}
+	msg := oblk.msgs[i]
+	// fixup msg code
+	copy(msg[0:4], []byte(code))
+	binary.LittleEndian.PutUint32(msg[12:], st.streamid)
+	q <- msg
+    }
+}
+
 func (st *Stream)SelfReader(conn net.Conn) {
     curr := NewBuffer()
     prev := NewBuffer()
@@ -518,20 +541,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     go st.SelfReader(lconn)
     for running {
 	if st.oblk != nil {
-	    // send rsnd message
-	    for i := 0; i < 32; i++ {
-		if st.oblk.rest & (1 << i) == 0 {
-		    continue
-		}
-		if st.oblkack & (1 << i) != 0 {
-		    continue
-		}
-		msg := st.oblk.msgs[i]
-		// fixup msg
-		copy(msg[0:4], []byte("rsnd"))
-		binary.LittleEndian.PutUint32(msg[12:], st.streamid)
-		ls.remote.q_sendmsg <- msg
-	    }
+	    st.SendBlock("rsnd", ls.remote.q_sendmsg)
 	    if st.oblkack == 0xffffffff {
 		st.oblk = nil
 		st.oblkid++
@@ -606,20 +616,7 @@ func (rs *RemoteServer)Run() {
     go st.SelfReader(conn)
     for rs.running {
 	if st.oblk != nil {
-	    // send rrcv messages
-	    for i := 0; i < 32; i++ {
-		if st.oblk.rest & (1 << i) == 0 {
-		    continue
-		}
-		if st.oblkack & (1 << i) != 0 {
-		    continue
-		}
-		msg := st.oblk.msgs[i]
-		// fixup msg
-		copy(msg[0:4], []byte("rrcv"))
-		binary.LittleEndian.PutUint32(msg[12:], st.streamid)
-		rs.remote.q_sendmsg <- msg
-	    }
+	    st.SendBlock("rrcv", rs.remote.q_sendmsg)
 	    if st.oblkack == 0xffffffff {
 		st.oblk = nil
 		st.oblkid++

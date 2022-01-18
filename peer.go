@@ -495,6 +495,10 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 }
 
 func (st *Stream)Stop() {
+    if st.running == false {
+	// nothing to do
+	return
+    }
     st.running = false
     // kick workers
     st.q_work <- true

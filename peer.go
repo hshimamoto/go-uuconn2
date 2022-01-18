@@ -268,6 +268,8 @@ type Stream struct {
     ack bool
     q_work chan bool
     q_acked chan bool
+    //
+    sweep bool
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -596,8 +598,11 @@ func (c *Connection)SweepStreams() {
     for _, st := range c.lstreams {
 	del := false
 	st.m.Lock()
-	if st.ropen == false && st.lopen == false {
+	if st.sweep {
 	    del = true
+	}
+	if st.ropen == false && st.lopen == false {
+	    st.sweep = true
 	}
 	st.m.Unlock()
 	if ! del {
@@ -612,8 +617,11 @@ func (c *Connection)SweepStreams() {
     for _, st := range c.rstreams {
 	del := false
 	st.m.Lock()
-	if st.ropen == false && st.lopen == false {
+	if st.sweep {
 	    del = true
+	}
+	if st.ropen == false && st.lopen == false {
+	    st.sweep = true
 	}
 	st.m.Unlock()
 	if ! del {

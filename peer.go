@@ -486,6 +486,10 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	    lastAck = time.Now()
 	}
 	<-st.q_work
+	for len(st.q_work) > 0 {
+	    <-st.q_work
+	}
+	logrus.Infof("stream:0x%x wakeup", st.streamid)
     }
     logrus.Infof("stream:0x%x done", st.streamid)
 }

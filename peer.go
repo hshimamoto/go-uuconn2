@@ -635,11 +635,9 @@ func (c *Connection)SweepStreams() {
 	st.m.Lock()
 	if st.sweep {
 	    del = true
-	}
-	if st.running == false {
+	} else if st.running == false {
 	    st.sweep = true
-	}
-	if st.ropen == false && st.lopen == false {
+	} else if st.ropen == false && st.lopen == false {
 	    st.Stop()
 	}
 	st.m.Unlock()
@@ -659,9 +657,10 @@ func (c *Connection)SweepStreams() {
 	st.m.Lock()
 	if st.sweep {
 	    del = true
-	}
-	if st.ropen == false && st.lopen == false {
+	} else if st.running == false {
 	    st.sweep = true
+	} else if st.ropen == false && st.lopen == false {
+	    st.Stop()
 	}
 	st.m.Unlock()
 	if del {

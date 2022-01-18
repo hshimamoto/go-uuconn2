@@ -238,6 +238,7 @@ func (blk *DataBlock)NextBlock() {
 
 func (blk *DataBlock)MarkClose() {
     blk.blkid = 0xffffffff
+    blk.rest = 3 // 3 close packets
 }
 
 type Buffer struct {
@@ -303,6 +304,10 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	return
     }
     if oblk.blkid == 0xffffffff {
+	if oblk.rest == 0 {
+	    return
+	}
+	oblk.rest--
 	msg := []byte("sendSSSSDDDDXXXXBBBBXXXXXXXXXXXX")
 	copy(msg[0:4], []byte(code))
 	binary.LittleEndian.PutUint32(msg[12:], st.streamid)

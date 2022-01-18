@@ -611,20 +611,20 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     running := true
     // start local server local reader groutine
     go st.SelfReader(lconn)
+    ackmsg := []byte("rrckSSSSDDDDXXXXBBBBAAAA")
+    binary.LittleEndian.PutUint32(ackmsg[12:], st.streamid)
     lastAck := time.Now()
     for running {
 	st.SendBlock("rsnd", ls.remote.q_sendmsg)
 	st.CheckOutblockAck()
+	sendack := false
 	st.m.Lock()
 	if st.ack {
 	    if st.iblk.rest == 0xffffffff || time.Since(lastAck) > time.Millisecond * 10 {
-		rrckmsg := []byte("rrckSSSSDDDDXXXXBBBBAAAA")
-		binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
-		binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid)
-		binary.LittleEndian.PutUint32(rrckmsg[20:], st.iblk.rest)
-		ls.remote.q_sendmsg <- rrckmsg
+		binary.LittleEndian.PutUint32(ackmsg[16:], st.iblk.blkid)
+		binary.LittleEndian.PutUint32(ackmsg[20:], st.iblk.rest)
 		st.ack = false
-		lastAck = time.Now()
+		sendack = true
 	    }
 	}
 	if st.iblk.rest == 0xffffffff {
@@ -632,6 +632,10 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 	    st.iblk.NextBlock()
 	}
 	st.m.Unlock()
+	if sendack {
+	    ls.remote.q_sendmsg <- ackmsg
+	    lastAck = time.Now()
+	}
 	<-st.q_work
     }
     logrus.Infof("LocalServer: handler done")
@@ -689,18 +693,18 @@ func (rs *RemoteServer)Run() {
 
     // start remote server local reader gorutine
     go st.SelfReader(conn)
+    ackmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
+    binary.LittleEndian.PutUint32(ackmsg[12:], st.streamid)
     lastAck := time.Now()
     for rs.running {
 	st.SendBlock("rrcv", rs.remote.q_sendmsg)
 	st.CheckOutblockAck()
+	sendack := false
 	st.m.Lock()
 	if st.ack {
 	    if st.iblk.rest == 0xffffffff || time.Since(lastAck) > time.Millisecond * 10 {
-		rrckmsg := []byte("rsckSSSSDDDDXXXXBBBBAAAA")
-		binary.LittleEndian.PutUint32(rrckmsg[12:], st.streamid)
-		binary.LittleEndian.PutUint32(rrckmsg[16:], st.iblk.blkid)
-		binary.LittleEndian.PutUint32(rrckmsg[20:], st.iblk.rest)
-		rs.remote.q_sendmsg <- rrckmsg
+		binary.LittleEndian.PutUint32(ackmsg[16:], st.iblk.blkid)
+		binary.LittleEndian.PutUint32(ackmsg[20:], st.iblk.rest)
 		st.ack = false
 	    }
 	}
@@ -709,6 +713,10 @@ func (rs *RemoteServer)Run() {
 	    st.iblk.NextBlock()
 	}
 	st.m.Unlock()
+	if sendack {
+	    rs.remote.q_sendmsg <- ackmsg
+	    lastAck = time.Now()
+	}
 	rs.lastUpdate = time.Now()
 	<-st.q_work
     }

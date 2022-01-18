@@ -380,10 +380,6 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		st.oblk.SetupMessages(curr.data[:curr.idx])
 		st.m.Unlock()
 		st.q_work <- true
-		// done if closed
-		if closed {
-		    return
-		}
 		// swap
 		tmp := curr
 		curr = prev
@@ -393,7 +389,14 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    }
 	}
 	if closed {
-	    time.Sleep(time.Second)
+	    // check data to send
+	    if curr.idx == 0 {
+		// no data
+		logrus.Infof("closed and no data")
+	    }
+	    // self side connection closed
+	    // wakeup from housekeeping
+	    <-st.q_acked
 	    continue
 	}
 	if len(curr.data) - curr.idx <= 0 {

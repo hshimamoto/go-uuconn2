@@ -785,6 +785,14 @@ func NewRemoteServer(laddr, raddr string, remote *Connection, stream *Stream) (*
     return rs, nil
 }
 
+func (rs *RemoteServer)String() string {
+    peerid := uint32(0)
+    if rs.remote != nil {
+	peerid = rs.remote.peerid
+    }
+    return fmt.Sprintf("remoteserver %s %s 0x%x", rs.laddr, rs.raddr, peerid)
+}
+
 func (rs *RemoteServer)Run() {
     rs.running = true
 
@@ -1237,6 +1245,13 @@ func (p *Peer)API_handler(conn net.Conn) {
 	resp += "local:\n"
 	p.m.Lock()
 	for _, serv := range p.lservs {
+	    resp += fmt.Sprintf("%s\n", serv.String())
+	}
+	p.m.Unlock()
+	// local servers
+	resp += "remote:\n"
+	p.m.Lock()
+	for _, serv := range p.rservs {
 	    resp += fmt.Sprintf("%s\n", serv.String())
 	}
 	p.m.Unlock()

@@ -256,6 +256,7 @@ type Stream struct {
     streamid uint32
     lopen, ropen bool
     createdTime time.Time
+    running bool
     // outgoing block
     oblk *DataBlock
     oblkack uint32
@@ -390,8 +391,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
     curr := NewBuffer()
     prev := NewBuffer()
     closed := false
-    // TODO running flag?
-    for {
+    for st.running {
 	if curr.idx > 0 {
 	    st.m.Lock()
 	    rest := st.oblk.rest
@@ -434,8 +434,12 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    <-st.q_acked
 	    continue
 	}
+	conn.SetReadDeadline(time.Now().Add(time.Second))
 	n, err := conn.Read(curr.data[curr.idx:])
-	if n <= 0 {
+	if n <= 0 || err != nil {
+	    if e, ok := err.(net.Error); ok && e.Timeout() {
+		continue
+	    }
 	    logrus.Infof("Read: %v", err)
 	    // close?
 	    closed = true
@@ -445,13 +449,16 @@ func (st *Stream)SelfReader(conn net.Conn) {
     }
 }
 
-func (st *Stream)Runner(code, ackcode string, q_sendmsg chan []byte) {
+func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn) {
     ackmsg := []byte("rackSSSSDDDDXXXXBBBBAAAA")
     copy(ackmsg[0:4], []byte(ackcode))
     binary.LittleEndian.PutUint32(ackmsg[12:], st.streamid)
     logrus.Infof("runner %s", string(ackmsg))
     lastAck := time.Now()
-    for {
+    st.running = true
+    // start SelfReader
+    go st.SelfReader(conn)
+    for st.running {
 	st.SendBlock(code, q_sendmsg)
 	st.CheckOutblockAck()
 	sendack := false
@@ -475,6 +482,24 @@ func (st *Stream)Runner(code, ackcode string, q_sendmsg chan []byte) {
 	}
 	<-st.q_work
     }
+    logrus.Infof("stream:0x%x done", st.streamid)
+}
+
+func (st *Stream)Stop() {
+    st.running = false
+    // kick workers
+    st.q_work <- true
+    st.q_acked <- true
+}
+
+func (st *Stream)Destroy() {
+    if st.sweep == false {
+	logrus.Infof("not sweeped")
+	return
+    }
+    // close queue
+    close(st.q_work)
+    close(st.q_acked)
 }
 
 type Connection struct {
@@ -594,6 +619,7 @@ func (c *Connection)KickStreams() {
 
 func (c *Connection)SweepStreams() {
     logrus.Infof("SweepStreams")
+    sweeped := []*Stream{}
     streams := []*Stream{}
     for _, st := range c.lstreams {
 	del := false
@@ -601,11 +627,16 @@ func (c *Connection)SweepStreams() {
 	if st.sweep {
 	    del = true
 	}
-	if st.ropen == false && st.lopen == false {
+	if st.running == false {
 	    st.sweep = true
 	}
+	if st.ropen == false && st.lopen == false {
+	    st.Stop()
+	}
 	st.m.Unlock()
-	if ! del {
+	if del {
+	    sweeped = append(sweeped, st)
+	} else {
 	    streams = append(streams, st)
 	}
     }
@@ -624,13 +655,18 @@ func (c *Connection)SweepStreams() {
 	    st.sweep = true
 	}
 	st.m.Unlock()
-	if ! del {
+	if del {
+	    sweeped = append(sweeped, st)
+	} else {
 	    streams = append(streams, st)
 	}
     }
     if len(streams) < len(c.rstreams) {
 	c.rstreams = streams
 	logrus.Infof("rstreams sweeped")
+    }
+    for _, st := range sweeped {
+	st.Destroy()
     }
 }
 
@@ -715,10 +751,8 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
 	return
     }
 
-    // start local server local reader groutine
-    go st.SelfReader(lconn)
     // forground runner
-    st.Runner("rsnd", "rrck", ls.remote.q_sendmsg)
+    st.Run("rsnd", "rrck", ls.remote.q_sendmsg, lconn)
     logrus.Infof("LocalServer: handler done")
 }
 
@@ -772,10 +806,8 @@ func (rs *RemoteServer)Run() {
     st := rs.stream
     st.SetWriter(conn)
 
-    // start remote server local reader gorutine
-    go st.SelfReader(conn)
     // forground runner
-    st.Runner("rrcv", "rsck", rs.remote.q_sendmsg)
+    st.Run("rrcv", "rsck", rs.remote.q_sendmsg, conn)
 }
 
 func (rs *RemoteServer)Stop() {

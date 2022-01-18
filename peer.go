@@ -310,6 +310,27 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
     }
 }
 
+func (st *Stream)GetBlock(data []byte) {
+    // blockdata
+    // |blkid|nr parts|part id|part len|data...|
+    if len(data) <= 16 {
+	return
+    }
+    // check incoming block
+    wakeup := false
+    st.m.Lock()
+    prevack := st.iblk.rest
+    st.iblk.GetBlock(data)
+    if st.iblk.rest != prevack {
+	st.ack = true
+	wakeup = true
+    }
+    st.m.Unlock()
+    if wakeup {
+	st.q_work <- true
+    }
+}
+
 func (st *Stream)GetAck(blkid, ack uint32) {
     wakeup := false
     st.m.Lock()
@@ -1000,25 +1021,7 @@ func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dp
 	logrus.Infof("unknown stream")
 	return
     }
-    data = data[4:]
-    // blockdata
-    // |blkid|nr parts|part id|part len|data...|
-    if len(data) <= 16 {
-	return
-    }
-    // check incoming block
-    wakeup := false
-    st.m.Lock()
-    prevack := st.iblk.rest
-    st.iblk.GetBlock(data)
-    if st.iblk.rest != prevack {
-	st.ack = true
-	wakeup = true
-    }
-    st.m.Unlock()
-    if wakeup {
-	st.q_work <- true
-    }
+    st.GetBlock(data[4:])
 }
 
 // Remote Recv
@@ -1033,25 +1036,7 @@ func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dp
 	logrus.Infof("unknown stream")
 	return
     }
-    data = data[4:]
-    // blockdata
-    // |blkid|nr parts|part id|part len|data...|
-    if len(data) <= 16 {
-	return
-    }
-    // check incoming block
-    wakeup := false
-    st.m.Lock()
-    prevack := st.iblk.rest
-    st.iblk.GetBlock(data)
-    if st.iblk.rest != prevack {
-	st.ack = true
-	wakeup = true
-    }
-    st.m.Unlock()
-    if wakeup {
-	st.q_work <- true
-    }
+    st.GetBlock(data[4:])
 }
 
 // Remote Send Ack

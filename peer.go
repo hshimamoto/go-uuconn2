@@ -261,6 +261,7 @@ type Stream struct {
     // outgoing block
     oblk *DataBlock
     oblkack uint32
+    oblkAcked time.Time
     // incoming block
     iblk *DataBlock
     writer io.Writer
@@ -363,7 +364,11 @@ func (st *Stream)GetAck(blkid, ack uint32) {
     wakeup := false
     st.m.Lock()
     if st.oblk.blkid == blkid {
+	prev := st.oblkack
 	st.oblkack |= ack
+	if prev != st.oblkack {
+	    st.oblkAcked = time.Now()
+	}
 	wakeup = true
     } else if st.oblk.blkid == blkid - 1 {
 	if ack == 0 {
@@ -405,6 +410,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		// create DataBlock
 		st.m.Lock()
 		st.oblk.SetupMessages(curr.data[:curr.idx])
+		st.oblkAcked = time.Now()
 		st.m.Unlock()
 		st.q_work <- true
 		// swap
@@ -464,6 +470,16 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
     // start SelfReader
     go st.SelfReader(conn)
     for st.running {
+	// no acks ?
+	if time.Since(st.oblkAcked) > time.Minute {
+	    // TODO: check in case no send from myside...
+	    logrus.Infof("stream:0x%x no acks from remote", st.streamid)
+	    // assume remote closed
+	    st.m.Lock()
+	    st.ropen = false
+	    st.m.Unlock()
+	    st.oblkAcked = time.Now()
+	}
 	st.SendBlock(code, q_sendmsg)
 	st.CheckOutblockAck()
 	sendack := false

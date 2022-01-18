@@ -200,10 +200,6 @@ func (blk *DataBlock)GetBlock(data []byte) {
     partlen := binary.LittleEndian.Uint32(data[12:16])
     data = data[16:]
     logrus.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
-    if blkid == 0xffffffff {
-	logrus.Infof("remote closed")
-	return
-    }
     if blk.blkid != blkid {
 	logrus.Infof("blkid mismatch %d vs %d", blk.blkid, blkid)
 	// ignore
@@ -332,6 +328,14 @@ func (st *Stream)GetBlock(data []byte) {
     if len(data) < 16 {
 	return
     }
+    blkid := binary.LittleEndian.Uint32(data[0:4])
+    if blkid == 0xffffffff {
+	logrus.Infof("remote closed")
+	st.m.Lock()
+	st.ropen = false
+	st.m.Unlock()
+	return
+    }
     // check incoming block
     wakeup := false
     st.m.Lock()
@@ -413,6 +417,10 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		// no data
 		logrus.Infof("closed and no data")
 		st.oblk.MarkClose()
+		st.m.Lock()
+		st.lopen = false
+		st.m.Unlock()
+		return
 	    }
 	    // self side connection closed
 	    // wakeup from housekeeping
@@ -579,6 +587,42 @@ func (c *Connection)KickStreams() {
     for _, st := range c.rstreams {
 	st.q_work <- true
 	st.q_acked <- true
+    }
+}
+
+func (c *Connection)SweepStreams() {
+    logrus.Infof("SweepStreams")
+    streams := []*Stream{}
+    for _, st := range c.lstreams {
+	del := false
+	st.m.Lock()
+	if st.ropen == false && st.lopen == false {
+	    del = true
+	}
+	st.m.Unlock()
+	if ! del {
+	    streams = append(streams, st)
+	}
+    }
+    if len(streams) < len(c.lstreams) {
+	c.lstreams = streams
+	logrus.Infof("lstreams sweeped")
+    }
+    streams = []*Stream{}
+    for _, st := range c.rstreams {
+	del := false
+	st.m.Lock()
+	if st.ropen == false && st.lopen == false {
+	    del = true
+	}
+	st.m.Unlock()
+	if ! del {
+	    streams = append(streams, st)
+	}
+    }
+    if len(streams) < len(c.rstreams) {
+	c.rstreams = streams
+	logrus.Infof("rstreams sweeped")
     }
 }
 
@@ -1280,6 +1324,15 @@ func (p *Peer)Housekeeper() {
 	}
 	for _, serv := range p.rservs {
 	    serv.remote.KickStreams()
+	}
+	p.m.Unlock()
+	// sweep
+	p.m.Lock()
+	for _, serv := range p.lservs {
+	    serv.remote.SweepStreams()
+	}
+	for _, serv := range p.rservs {
+	    serv.remote.SweepStreams()
 	}
 	p.m.Unlock()
 	time.Sleep(time.Second * 5)

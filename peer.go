@@ -200,6 +200,10 @@ func (blk *DataBlock)GetBlock(data []byte) {
     partlen := binary.LittleEndian.Uint32(data[12:16])
     data = data[16:]
     logrus.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
+    if blkid == 0xffffffff {
+	logrus.Infof("remote closed")
+	return
+    }
     if blk.blkid != blkid {
 	logrus.Infof("blkid mismatch %d vs %d", blk.blkid, blkid)
 	// ignore
@@ -234,6 +238,10 @@ func (blk *DataBlock)NextBlock() {
     blk.blkid++
     blk.rest = 0
     blk.sz = 0
+}
+
+func (blk *DataBlock)MarkClose() {
+    blk.blkid = 0xffffffff
 }
 
 type Buffer struct {
@@ -295,6 +303,14 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
     if oblk == nil {
 	return
     }
+    if oblk.blkid == 0xffffffff {
+	msg := []byte("sendSSSSDDDDXXXXBBBBXXXXXXXXXXXX")
+	copy(msg[0:4], []byte(code))
+	binary.LittleEndian.PutUint32(msg[12:], st.streamid)
+	binary.LittleEndian.PutUint32(msg[16:], oblk.blkid)
+	q <- msg
+	return
+    }
     for i := 0; i < 32; i++ {
 	if oblk.rest & (1 << i) == 0 {
 	    continue
@@ -313,7 +329,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 func (st *Stream)GetBlock(data []byte) {
     // blockdata
     // |blkid|nr parts|part id|part len|data...|
-    if len(data) <= 16 {
+    if len(data) < 16 {
 	return
     }
     // check incoming block
@@ -389,10 +405,14 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    }
 	}
 	if closed {
+	    st.m.Lock()
+	    rest := st.oblk.rest
+	    st.m.Unlock()
 	    // check data to send
-	    if curr.idx == 0 {
+	    if curr.idx == 0 && rest == 0 {
 		// no data
 		logrus.Infof("closed and no data")
+		st.oblk.MarkClose()
 	    }
 	    // self side connection closed
 	    // wakeup from housekeeping

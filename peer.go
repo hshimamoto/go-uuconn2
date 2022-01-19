@@ -200,7 +200,11 @@ func (blk *DataBlock)GetBlock(data []byte) {
     partlen := binary.LittleEndian.Uint32(data[12:16])
     data = data[16:]
     logrus.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
-    if blk.blkid != blkid {
+    if blk.blkid < blkid {
+	// ignore
+	return
+    }
+    if blk.blkid > blkid {
 	logrus.Infof("blkid mismatch %d vs %d", blk.blkid, blkid)
 	// ignore
 	return

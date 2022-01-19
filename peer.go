@@ -421,27 +421,80 @@ func (st *Stream)CheckOutblockAck() {
 }
 
 func (st *Stream)SelfReader(conn net.Conn) {
+    var m sync.Mutex
     curr := NewBuffer()
     prev := NewBuffer()
     closed := false
+    reading := false
+    q_wait := make(chan bool, 16)
+    q_read := make(chan bool, 16)
+    go func() {
+	for st.running {
+	    m.Lock()
+	    rest := len(curr.data) - curr.idx
+	    if rest <= 0 {
+		m.Unlock()
+		<-q_wait // wait buffer
+		continue
+	    }
+	    reading = true
+	    b := curr
+	    m.Unlock()
+	    conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	    n, err := conn.Read(b.data[b.idx:])
+	    m.Lock()
+	    reading = false
+	    if n > 0 {
+		b.idx += n
+		m.Unlock()
+		if len(q_read) == 0 {
+		    q_read <- true
+		}
+		continue
+	    }
+	    if e, ok := err.(net.Error); ok && e.Timeout() {
+		m.Unlock()
+		continue
+	    }
+	    m.Unlock()
+	    st.Infof("Read: %v", err)
+	    closed = true
+	    break
+	}
+    }()
+    drain := 0
     for st.running {
-	if curr.idx > 0 {
+	wakeup := false
+	m.Lock()
+	if curr.idx > drain {
 	    st.m.Lock()
 	    rest := st.oblk.rest
 	    st.m.Unlock()
 	    if rest == 0 {
 		// create DataBlock
 		st.m.Lock()
-		st.oblk.SetupMessages(curr.data[:curr.idx])
+		st.oblk.SetupMessages(curr.data[drain:curr.idx])
 		st.oblkAcked = time.Now()
 		st.m.Unlock()
 		st.q_work <- true
-		// swap
-		tmp := curr
-		curr = prev
-		prev = tmp
-		curr.idx = 0
-		continue
+		// check
+		if reading {
+		    drain = curr.idx
+		} else {
+		    // swap buffer
+		    tmp := curr
+		    curr = prev
+		    prev = tmp
+		    curr.idx = 0
+		    drain = 0
+		    wakeup = true
+		}
+	    }
+	}
+	m.Unlock()
+	if wakeup {
+	    if len(q_wait) == 0 {
+		q_wait <- true
 	    }
 	}
 	if closed {
@@ -461,26 +514,11 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    }
 	    // self side connection closed
 	    // wakeup from housekeeping
-	    <-st.q_acked
-	    continue
 	}
-	if len(curr.data) - curr.idx <= 0 {
-	    // no enough buffer
-	    <-st.q_acked
-	    continue
+	select {
+	case <-st.q_acked:
+	case <-q_read:
 	}
-	conn.SetReadDeadline(time.Now().Add(time.Second))
-	n, err := conn.Read(curr.data[curr.idx:])
-	if n <= 0 || err != nil {
-	    if e, ok := err.(net.Error); ok && e.Timeout() {
-		continue
-	    }
-	    st.Infof("Read: %v", err)
-	    // close?
-	    closed = true
-	    continue
-	}
-	curr.idx += n
     }
 }
 

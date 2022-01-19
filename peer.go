@@ -531,8 +531,16 @@ func (st *Stream)Stop() {
     }
     st.running = false
     // kick workers
-    st.q_work <- true
-    st.q_acked <- true
+    st.KickWorkers()
+}
+
+func (st *Stream)KickWorkers() {
+    if len(st.q_work) == 0 {
+	st.q_work <- true
+    }
+    if len(st.q_acked) == 0 {
+	st.q_acked <- true
+    }
 }
 
 func (st *Stream)Destroy() {
@@ -660,12 +668,10 @@ func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
 func (c *Connection)KickStreams() {
     c.Infof("KickStreams")
     for _, st := range c.lstreams {
-	st.q_work <- true
-	st.q_acked <- true
+	st.KickWorkers()
     }
     for _, st := range c.rstreams {
-	st.q_work <- true
-	st.q_acked <- true
+	st.KickWorkers()
     }
 }
 

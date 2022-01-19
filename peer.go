@@ -477,6 +477,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	    // assume remote closed
 	    st.m.Lock()
 	    st.ropen = false
+	    st.lopen = false
 	    st.m.Unlock()
 	    st.oblkAcked = time.Now()
 	}
@@ -637,10 +638,16 @@ func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
 func (c *Connection)KickStreams() {
     logrus.Infof("KickStreams")
     for _, st := range c.lstreams {
+	st.m.Lock()
+	st.ack = true
+	st.m.Unlock()
 	st.q_work <- true
 	st.q_acked <- true
     }
     for _, st := range c.rstreams {
+	st.m.Lock()
+	st.ack = true
+	st.m.Unlock()
 	st.q_work <- true
 	st.q_acked <- true
     }
@@ -771,10 +778,10 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     binary.LittleEndian.PutUint32(msg[12:], st.streamid)
     // try to send
     ls.remote.q_sendmsg <- msg
-    // TODO wait st.ropen
     // wait a 1sec right now
-    time.Sleep(time.Second)
+    <-st.q_work
     if st.ropen == false {
+	st.lopen = false
 	logrus.Infof("stream not opened")
 	return
     }
@@ -1139,6 +1146,7 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
     // okay, remote was opened
     st.ropen = true
     logrus.Infof("OpenAck from 0x%x stream:0x%x", spid, streamid)
+    st.q_work <- true
 }
 
 // Remote Send

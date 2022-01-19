@@ -391,6 +391,14 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	st.oblkAcked = time.Now()
 	wakeup = true
 	st.s_ack++
+    } else if st.oblk.blkid + 1== blkid {
+	if ack == 0 {
+	    st.Infof("missing prev ack")
+	    st.oblkack = 0xffffffff
+	    st.oblkAcked = time.Now()
+	    wakeup = true
+	    st.s_ack++
+	}
     }
     st.m.Unlock()
     if wakeup {

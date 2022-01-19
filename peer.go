@@ -272,7 +272,6 @@ type Stream struct {
     // mutex
     m sync.Mutex
     //
-    ack bool
     q_work chan bool
     q_acked chan bool
     //
@@ -355,7 +354,6 @@ func (st *Stream)GetBlock(data []byte) {
     prevack := st.iblk.rest
     st.iblk.GetBlock(data)
     if st.iblk.rest != prevack {
-	st.ack = true
 	wakeup = true
     }
     st.m.Unlock()
@@ -462,8 +460,9 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
     ackmsg := []byte("rackSSSSDDDDXXXXBBBBAAAA")
     copy(ackmsg[0:4], []byte(ackcode))
     binary.LittleEndian.PutUint32(ackmsg[12:], st.streamid)
-    logrus.Infof("runner %s", string(ackmsg))
+    //logrus.Infof("runner %s", string(ackmsg))
     lastAck := time.Now()
+    st.oblkAcked = time.Now()
     st.running = true
     // start SelfReader
     go st.SelfReader(conn)
@@ -483,13 +482,10 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	st.CheckOutblockAck()
 	sendack := false
 	st.m.Lock()
-	if st.ack {
-	    if st.iblk.rest == 0xffffffff || time.Since(lastAck) > time.Millisecond * 10 {
-		binary.LittleEndian.PutUint32(ackmsg[16:], st.iblk.blkid)
-		binary.LittleEndian.PutUint32(ackmsg[20:], st.iblk.rest)
-		st.ack = false
-		sendack = true
-	    }
+	if st.iblk.rest == 0xffffffff || time.Since(lastAck) > time.Millisecond * 10 {
+	    binary.LittleEndian.PutUint32(ackmsg[16:], st.iblk.blkid)
+	    binary.LittleEndian.PutUint32(ackmsg[20:], st.iblk.rest)
+	    sendack = true
 	}
 	if st.iblk.rest == 0xffffffff {
 	    st.FlushInblock()
@@ -636,16 +632,10 @@ func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
 func (c *Connection)KickStreams() {
     logrus.Infof("KickStreams")
     for _, st := range c.lstreams {
-	st.m.Lock()
-	st.ack = true
-	st.m.Unlock()
 	st.q_work <- true
 	st.q_acked <- true
     }
     for _, st := range c.rstreams {
-	st.m.Lock()
-	st.ack = true
-	st.m.Unlock()
 	st.q_work <- true
 	st.q_acked <- true
     }

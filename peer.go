@@ -300,8 +300,8 @@ func NewStream(streamid uint32) *Stream {
     }
     st.oblk = NewDataBlock(fmt.Sprintf("oblk st:0x%x ", streamid))
     st.iblk = NewDataBlock(fmt.Sprintf("iblk st:0x%x ", streamid))
-    st.q_work = make(chan bool, 16)
-    st.q_acked = make(chan bool, 16)
+    st.q_work = make(chan bool, 64)
+    st.q_acked = make(chan bool, 64)
     return st
 }
 

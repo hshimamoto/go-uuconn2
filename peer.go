@@ -448,6 +448,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		st.m.Lock()
 		st.lopen = false
 		st.m.Unlock()
+		st.q_work <- true
 		return
 	    }
 	    // self side connection closed

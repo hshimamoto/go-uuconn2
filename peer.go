@@ -374,12 +374,6 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	    st.oblkAcked = time.Now()
 	}
 	wakeup = true
-    } else if st.oblk.blkid == blkid - 1 {
-	if ack == 0 {
-	    // catch next block ack
-	    st.oblkack = 0xffffffff
-	    wakeup = true
-	}
     }
     st.m.Unlock()
     if wakeup {

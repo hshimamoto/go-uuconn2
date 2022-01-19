@@ -154,16 +154,23 @@ type DataBlock struct {
     rest uint32
     sz uint32
     msgs [32]([]byte)
+    //
+    tag string
 }
 
-func NewDataBlock(blkid uint32) *DataBlock {
+func NewDataBlock(tag string) *DataBlock {
     blk := &DataBlock{
-	blkid: blkid,
+	blkid: 0,
 	data: nil,
 	rest: 0,
 	sz: 0,
+	tag: tag,
     }
     return blk
+}
+
+func (blk *DataBlock)Infof(f string, args ...interface{}) {
+    logrus.Infof(blk.tag + f, args...)
 }
 
 func (blk *DataBlock)SetupMessages(data []byte) {
@@ -190,7 +197,7 @@ func (blk *DataBlock)SetupMessages(data []byte) {
 	    break
 	}
     }
-    logrus.Infof("%d parts rest 0x%x", nparts, blk.rest)
+    blk.Infof("%d parts rest 0x%x", nparts, blk.rest)
 }
 
 func (blk *DataBlock)GetBlock(data []byte) {
@@ -199,13 +206,13 @@ func (blk *DataBlock)GetBlock(data []byte) {
     partid := binary.LittleEndian.Uint32(data[8:12])
     partlen := binary.LittleEndian.Uint32(data[12:16])
     data = data[16:]
-    logrus.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
+    blk.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
     if blk.blkid < blkid {
 	// ignore
 	return
     }
     if blk.blkid > blkid {
-	logrus.Infof("blkid mismatch %d vs %d", blk.blkid, blkid)
+	blk.Infof("blkid mismatch %d vs %d", blk.blkid, blkid)
 	// ignore
 	return
     }
@@ -283,11 +290,16 @@ func NewStream(streamid uint32) *Stream {
 	streamid: streamid,
 	createdTime: time.Now(),
     }
-    st.oblk = NewDataBlock(0)
-    st.iblk = NewDataBlock(0)
+    st.oblk = NewDataBlock(fmt.Sprintf("oblk st:0x%x ", streamid))
+    st.iblk = NewDataBlock(fmt.Sprintf("iblk st:0x%x ", streamid))
     st.q_work = make(chan bool, 16)
     st.q_acked = make(chan bool, 16)
     return st
+}
+
+func (st *Stream)Infof(f string, args ...interface{}) {
+    header := fmt.Sprintf("stream:0x%x ", st.streamid)
+    logrus.Infof(header + f, args...)
 }
 
 func (st *Stream)SetWriter(w io.Writer) {
@@ -295,7 +307,7 @@ func (st *Stream)SetWriter(w io.Writer) {
 }
 
 func (st *Stream)FlushInblock() {
-    logrus.Infof("Flush %d bytes", st.iblk.sz)
+    st.Infof("Flush %d bytes", st.iblk.sz)
     st.writer.Write(st.iblk.data[:st.iblk.sz])
 }
 
@@ -424,7 +436,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    // check data to send
 	    if curr.idx == 0 && rest == 0 {
 		// no data
-		logrus.Infof("closed and no data")
+		st.Infof("closed and no data")
 		st.oblk.MarkClose()
 		st.m.Lock()
 		st.lopen = false
@@ -447,7 +459,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    if e, ok := err.(net.Error); ok && e.Timeout() {
 		continue
 	    }
-	    logrus.Infof("Read: %v", err)
+	    st.Infof("Read: %v", err)
 	    // close?
 	    closed = true
 	    continue
@@ -460,7 +472,6 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
     ackmsg := []byte("rackSSSSDDDDXXXXBBBBAAAA")
     copy(ackmsg[0:4], []byte(ackcode))
     binary.LittleEndian.PutUint32(ackmsg[12:], st.streamid)
-    //logrus.Infof("runner %s", string(ackmsg))
     lastAck := time.Now()
     st.oblkAcked = time.Now()
     st.running = true
@@ -470,7 +481,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	// no acks ?
 	if time.Since(st.oblkAcked) > time.Minute {
 	    // TODO: check in case no send from myside...
-	    logrus.Infof("stream:0x%x no acks from remote", st.streamid)
+	    st.Infof("no acks from remote")
 	    // assume remote closed
 	    st.m.Lock()
 	    st.ropen = false
@@ -500,9 +511,9 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	for len(st.q_work) > 0 {
 	    <-st.q_work
 	}
-	logrus.Infof("stream:0x%x wakeup", st.streamid)
+	st.Infof("wakeup")
     }
-    logrus.Infof("stream:0x%x done", st.streamid)
+    st.Infof("done")
 }
 
 func (st *Stream)Stop() {
@@ -518,7 +529,7 @@ func (st *Stream)Stop() {
 
 func (st *Stream)Destroy() {
     if st.sweep == false {
-	logrus.Infof("not sweeped")
+	st.Infof("not sweeped")
 	return
     }
     // close queue
@@ -561,6 +572,11 @@ func (c *Connection)String() string {
 	    c.remotes)
 }
 
+func (c *Connection)Infof(f string, args ...interface{}) {
+    header := fmt.Sprintf("connection:0x%x ", c.peerid)
+    logrus.Infof(header + f, args...)
+}
+
 func (c *Connection)Update(addr string) {
     c.m.Lock()
     defer c.m.Unlock()
@@ -599,7 +615,7 @@ func (c *Connection)NewLocalStream() *Stream {
 func (c *Connection)LookupLocalStream(lid uint32) *Stream {
     c.m.Lock()
     defer c.m.Unlock()
-    logrus.Infof("looking for local stream id 0x%x from %d", lid, len(c.lstreams))
+    c.Infof("looking for local stream id 0x%x from %d", lid, len(c.lstreams))
     for _, s := range c.lstreams {
 	if s.streamid == lid {
 	    return s
@@ -619,9 +635,8 @@ func (c *Connection)NewRemoteStream(rid uint32) *Stream {
 func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
     c.m.Lock()
     defer c.m.Unlock()
-    logrus.Infof("looking for remote stream id 0x%x from %d", rid, len(c.rstreams))
+    c.Infof("looking for remote stream id 0x%x from %d", rid, len(c.rstreams))
     for _, s := range c.rstreams {
-	logrus.Infof("check 0x%x", s.streamid)
 	if s.streamid == rid {
 	    return s
 	}
@@ -630,7 +645,7 @@ func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
 }
 
 func (c *Connection)KickStreams() {
-    logrus.Infof("KickStreams")
+    c.Infof("KickStreams")
     for _, st := range c.lstreams {
 	st.q_work <- true
 	st.q_acked <- true
@@ -642,7 +657,7 @@ func (c *Connection)KickStreams() {
 }
 
 func (c *Connection)SweepStreams() {
-    logrus.Infof("SweepStreams")
+    c.Infof("SweepStreams")
     sweeped := []*Stream{}
     streams := []*Stream{}
     for _, st := range c.lstreams {
@@ -664,7 +679,7 @@ func (c *Connection)SweepStreams() {
     }
     if len(streams) < len(c.lstreams) {
 	c.lstreams = streams
-	logrus.Infof("lstreams sweeped")
+	c.Infof("lstreams sweeped")
     }
     streams = []*Stream{}
     for _, st := range c.rstreams {
@@ -686,7 +701,7 @@ func (c *Connection)SweepStreams() {
     }
     if len(streams) < len(c.rstreams) {
 	c.rstreams = streams
-	logrus.Infof("rstreams sweeped")
+	c.Infof("rstreams sweeped")
     }
     for _, st := range sweeped {
 	st.Destroy()
@@ -698,7 +713,7 @@ func (c *Connection)Run(q chan UDPMessage) {
     for c.running {
 	sendmsg := <-c.q_sendmsg
 	if len(sendmsg) > 12 {
-	    logrus.Infof("sendmsg %d bytes", len(sendmsg))
+	    c.Infof("sendmsg %d bytes", len(sendmsg))
 	    r := c.Freshers()[0]
 	    addr, err := net.ResolveUDPAddr("udp", r)
 	    if err != nil {
@@ -895,6 +910,11 @@ func NewPeer(laddr string) (*Peer, error) {
     return p, nil
 }
 
+func (p *Peer)Infof(f string, args ...interface{}) {
+    header := fmt.Sprintf("peer:0x%x ", p.peerid)
+    logrus.Infof(header + f, args...)
+}
+
 func (p *Peer)FindConnection(peerid uint32) *Connection {
     p.m.Lock()
     defer p.m.Unlock()
@@ -1023,7 +1043,7 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
     p.s_probe++
     // TODO
     if spid == dpid {
-	logrus.Infof("self communication")
+	p.Infof("self communication")
 	// WILL BE IGNORED
     }
     // lookup spid?
@@ -1092,7 +1112,7 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
 	return
     }
     raddr := string(data[4:])
-    logrus.Infof("Open from 0x%x stream:0x%x %s", spid, streamid, raddr)
+    p.Infof("Open from 0x%x stream:0x%x %s", spid, streamid, raddr)
     // New
     st = c.NewRemoteStream(streamid)
     // New RemoteServer
@@ -1116,24 +1136,24 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
     if len(data) < 4 {
 	return
     }
-    logrus.Infof("recv oack")
+    p.Infof("recv oack")
     // Lookup Connection
     c := p.LookupConnectionById(spid)
     if c == nil {
 	// ignore
-	logrus.Infof("no connection")
+	p.Infof("no connection")
 	return
     }
     streamid := binary.LittleEndian.Uint32(data[0:4])
     // Lookup Local Stream
     st := c.LookupLocalStream(streamid)
     if st == nil {
-	logrus.Infof("no local stream 0x%x", streamid)
+	p.Infof("no local stream 0x%x", streamid)
 	return
     }
     // okay, remote was opened
     st.ropen = true
-    logrus.Infof("OpenAck from 0x%x stream:0x%x", spid, streamid)
+    p.Infof("OpenAck from 0x%x stream:0x%x", spid, streamid)
     st.q_work <- true
 }
 
@@ -1143,10 +1163,10 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
 func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     streamid := binary.LittleEndian.Uint32(data[0:4])
     blkid := binary.LittleEndian.Uint32(data[4:8])
-    logrus.Infof("recv rsnd streamid:0x%x blkid:%d", streamid, blkid)
+    p.Infof("recv rsnd streamid:0x%x blkid:%d", streamid, blkid)
     c, st := p.LookupConnectionAndRemoteStream(spid, data)
     if c == nil || st == nil {
-	logrus.Infof("unknown stream")
+	p.Infof("unknown stream")
 	return
     }
     st.GetBlock(data[4:])
@@ -1158,10 +1178,10 @@ func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dp
 func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     streamid := binary.LittleEndian.Uint32(data[0:4])
     blkid := binary.LittleEndian.Uint32(data[4:8])
-    logrus.Infof("recv rrcv streamid:0x%x blkid:%d", streamid, blkid)
+    p.Infof("recv rrcv streamid:0x%x blkid:%d", streamid, blkid)
     c, st := p.LookupConnectionAndLocalStream(spid, data)
     if c == nil || st == nil {
-	logrus.Infof("unknown stream")
+	p.Infof("unknown stream")
 	return
     }
     st.GetBlock(data[4:])
@@ -1173,12 +1193,12 @@ func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dp
 func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     c, st := p.LookupConnectionAndLocalStream(spid, data)
     if c == nil || st == nil {
-	logrus.Infof("unknown stream")
+	p.Infof("unknown stream")
 	return
     }
     blkid := binary.LittleEndian.Uint32(data[4:])
     ack := binary.LittleEndian.Uint32(data[8:])
-    logrus.Infof("recv rsck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
+    p.Infof("recv rsck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     st.GetAck(blkid, ack)
 }
 
@@ -1188,12 +1208,12 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
 func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     c, st := p.LookupConnectionAndRemoteStream(spid, data)
     if c == nil || st == nil {
-	logrus.Infof("unknown stream")
+	p.Infof("unknown stream")
 	return
     }
     blkid := binary.LittleEndian.Uint32(data[4:])
     ack := binary.LittleEndian.Uint32(data[8:])
-    logrus.Infof("recv rrck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
+    p.Infof("recv rrck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     st.GetAck(blkid, ack)
 }
 
@@ -1231,7 +1251,7 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     case "rsck": p.UDP_handler_RemoteSendAck(s, addr, spid, dpid, data)
     case "rrck": p.UDP_handler_RemoteRecvAck(s, addr, spid, dpid, data)
     default:
-	logrus.Infof("msg code [%s] 0x%x 0x%x", code, spid, dpid)
+	p.Infof("msg code [%s] 0x%x 0x%x", code, spid, dpid)
     }
 }
 
@@ -1240,13 +1260,13 @@ func (p *Peer)API_handler(conn net.Conn) {
     buf := make([]byte, 256)
     n, err := conn.Read(buf)
     if n <= 0 {
-	logrus.Infof("API: Read: %v", err)
+	p.Infof("API: Read: %v", err)
 	return
     }
     firstline := strings.Split(string(buf[:n]), "\n")[0]
     req := strings.TrimSpace(firstline)
     words := strings.Fields(req)
-    logrus.Infof("API: %v", words)
+    p.Infof("API: %v", words)
     switch words[0] {
     case "INFO":
 	resp := ""
@@ -1289,7 +1309,7 @@ func (p *Peer)API_handler(conn net.Conn) {
 	}
 	addr, err := net.ResolveUDPAddr("udp", words[1])
 	if err != nil {
-	    logrus.Info("ResolveUDPAddr: %v", err)
+	    p.Infof("ResolveUDPAddr: %v", err)
 	    return
 	}
 	// probe target to connect
@@ -1307,14 +1327,14 @@ func (p *Peer)API_handler(conn net.Conn) {
 	raddr := r[1]
 	remote := p.LookupConnection(rname)
 	if remote == nil {
-	    logrus.Infof("unknown remote %s", rname)
+	    p.Infof("unknown remote %s", rname)
 	    resp := fmt.Sprintf("Unknown: %s", rname)
 	    conn.Write([]byte(resp))
 	    return
 	}
 	ls, err := NewLocalServer(laddr, raddr, remote)
 	if err != nil {
-	    logrus.Infof("NewLocalServer: %v", err)
+	    p.Infof("NewLocalServer: %v", err)
 	    resp := fmt.Sprintf("Error: %v", err)
 	    conn.Write([]byte(resp))
 	    return
@@ -1338,7 +1358,7 @@ func (p *Peer)API_handler(conn net.Conn) {
 	    }
 	}
 	if ! hit {
-	    logrus.Infof("new checker: %s", words[1])
+	    p.Infof("new checker: %s", words[1])
 	    p.checkers = append(p.checkers, words[1])
 	}
 	p.m.Unlock()
@@ -1420,7 +1440,7 @@ func (p *Peer)Housekeeper() {
 
 func (p *Peer)Run() {
     p.running = true
-    logrus.Infof("peer running")
+    p.Infof("peer running")
     go p.serv.Run()
     go p.Housekeeper()
     idx := 0
@@ -1459,7 +1479,7 @@ func (p *Peer)Run() {
     for _, sock := range p.lsocks {
 	sock.Stop()
     }
-    logrus.Infof("peer stopped")
+    p.Infof("peer stopped")
 }
 
 func peer(laddr string) {

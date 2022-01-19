@@ -224,12 +224,12 @@ func Scenario() {
 
     ts.Stop()
 
-    dumpinfo(3)
+    dumpinfo(5)
 
     logrus.Infof("ending test")
 
-    // 3sec...
-    time.Sleep(time.Second * 3)
+    // 5sec...
+    time.Sleep(time.Second * 5)
 
     if inst1.Process != nil {
 	logrus.Infof("SIGINT to inst1")

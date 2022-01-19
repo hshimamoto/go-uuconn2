@@ -156,6 +156,8 @@ type DataBlock struct {
     msgs [32]([]byte)
     //
     tag string
+    // stats
+    s_oldblkid, s_badblkid, s_baddata, s_dup uint32
 }
 
 func NewDataBlock(tag string) *DataBlock {
@@ -209,16 +211,19 @@ func (blk *DataBlock)GetBlock(data []byte) {
     blk.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
     if blk.blkid < blkid {
 	// ignore
+	blk.s_oldblkid++
 	return
     }
     if blk.blkid > blkid {
 	blk.Infof("blkid mismatch %d vs %d", blk.blkid, blkid)
 	// ignore
+	blk.s_badblkid++
 	return
     }
     // check
     if nr_parts > 32 || partid >= 32 || partlen > 1024 {
 	// bad data
+	blk.s_baddata++
 	return
     }
     // fill bits
@@ -227,6 +232,7 @@ func (blk *DataBlock)GetBlock(data []byte) {
     }
     // already have?
     if (blk.rest & (1 << partid)) != 0 {
+	blk.s_dup++
 	return
     }
     if blk.data == nil {
@@ -283,6 +289,8 @@ type Stream struct {
     q_acked chan bool
     //
     sweep bool
+    // stats
+    s_send, s_ack uint32
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -343,6 +351,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	copy(msg[0:4], []byte(code))
 	binary.LittleEndian.PutUint32(msg[12:], st.streamid)
 	q <- msg
+	st.s_send++
     }
 }
 
@@ -384,6 +393,7 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	    st.oblkAcked = time.Now()
 	}
 	wakeup = true
+	st.s_ack++
     }
     st.m.Unlock()
     if wakeup {
@@ -535,6 +545,11 @@ func (st *Stream)Destroy() {
     // close queue
     close(st.q_work)
     close(st.q_acked)
+    // show stats
+    st.Infof("total %d sends %d acks", st.s_send, st.s_ack)
+    st.Infof("oblk errors %d %d %d %d",
+	st.oblk.s_oldblkid, st.oblk.s_badblkid,
+	st.oblk.s_baddata, st.oblk.s_dup)
 }
 
 type Connection struct {

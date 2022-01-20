@@ -212,7 +212,7 @@ func (blk *DataBlock)GetBlock(data []byte) {
     partid := binary.LittleEndian.Uint32(data[8:12])
     partlen := binary.LittleEndian.Uint32(data[12:16])
     data = data[16:]
-    blk.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
+    //blk.Infof("getblock %d %d %d %d %d", blkid, nr_parts, partid, partlen, len(data))
     if blk.blkid < blkid {
 	// ignore
 	blk.s_oldblkid++
@@ -976,6 +976,7 @@ type Peer struct {
     s_probe uint32
     s_inform uint32
     s_open, s_openack uint32
+    s_rsnd, s_rrcv, s_rsck, s_rrck uint32
 }
 
 func NewPeer(laddr string) (*Peer, error) {
@@ -1257,9 +1258,10 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
 //  LocalServer read and transfer data to remote stream
 // |rsnd|spid|dpid|stream id|blockdata...|
 func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
-    streamid := binary.LittleEndian.Uint32(data[0:4])
-    blkid := binary.LittleEndian.Uint32(data[4:8])
-    p.Infof("recv rsnd streamid:0x%x blkid:%d", streamid, blkid)
+    //streamid := binary.LittleEndian.Uint32(data[0:4])
+    //blkid := binary.LittleEndian.Uint32(data[4:8])
+    //p.Infof("recv rsnd streamid:0x%x blkid:%d", streamid, blkid)
+    p.s_rsnd++
     c, st := p.LookupConnectionAndRemoteStream(spid, data)
     if c == nil || st == nil {
 	p.Infof("unknown stream")
@@ -1272,9 +1274,10 @@ func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dp
 //  LocalServer read and transfer data to remote stream
 // |rrcv|spid|dpid|stream id|blockdata...|
 func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
-    streamid := binary.LittleEndian.Uint32(data[0:4])
-    blkid := binary.LittleEndian.Uint32(data[4:8])
-    p.Infof("recv rrcv streamid:0x%x blkid:%d", streamid, blkid)
+    //streamid := binary.LittleEndian.Uint32(data[0:4])
+    //blkid := binary.LittleEndian.Uint32(data[4:8])
+    //p.Infof("recv rrcv streamid:0x%x blkid:%d", streamid, blkid)
+    p.s_rrcv++
     c, st := p.LookupConnectionAndLocalStream(spid, data)
     if c == nil || st == nil {
 	p.Infof("unknown stream")
@@ -1287,14 +1290,15 @@ func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dp
 //  LocalServer read and transfer data to remote stream
 // |rsck|spid|dpid|stream id|blkid|ack|
 func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    blkid := binary.LittleEndian.Uint32(data[4:])
+    ack := binary.LittleEndian.Uint32(data[8:])
+    //p.Infof("recv rsck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
+    p.s_rsck++
     c, st := p.LookupConnectionAndLocalStream(spid, data)
     if c == nil || st == nil {
 	p.Infof("unknown stream")
 	return
     }
-    blkid := binary.LittleEndian.Uint32(data[4:])
-    ack := binary.LittleEndian.Uint32(data[8:])
-    p.Infof("recv rsck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     st.GetAck(blkid, ack)
 }
 
@@ -1302,14 +1306,15 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
 //  LocalServer read and transfer data to remote stream
 // |rrck|spid|dpid|stream id|blockid|ack|
 func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    blkid := binary.LittleEndian.Uint32(data[4:])
+    ack := binary.LittleEndian.Uint32(data[8:])
+    //p.Infof("recv rrck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
+    p.s_rrck++
     c, st := p.LookupConnectionAndRemoteStream(spid, data)
     if c == nil || st == nil {
 	p.Infof("unknown stream")
 	return
     }
-    blkid := binary.LittleEndian.Uint32(data[4:])
-    ack := binary.LittleEndian.Uint32(data[8:])
-    p.Infof("recv rrck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     st.GetAck(blkid, ack)
 }
 

@@ -320,7 +320,11 @@ func (st *Stream)SetWriter(w io.Writer) {
 
 func (st *Stream)FlushInblock() {
     //st.Infof("Flush %d bytes", st.iblk.sz)
-    st.writer.Write(st.iblk.data[:st.iblk.sz])
+    sz := 0
+    for uint32(sz) < st.iblk.sz {
+	n, _ := st.writer.Write(st.iblk.data[:st.iblk.sz])
+	sz += n
+    }
 }
 
 func (st *Stream)SendBlock(code string, q chan []byte) {

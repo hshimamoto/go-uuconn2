@@ -294,7 +294,7 @@ type Stream struct {
     //
     sweep bool
     // stats
-    s_send, s_ack uint32
+    s_sendmsg, s_sendack, s_recvack uint32
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -355,7 +355,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	copy(msg[0:4], []byte(code))
 	binary.LittleEndian.PutUint32(msg[12:], st.streamid)
 	q <- msg
-	st.s_send++
+	st.s_sendmsg++
     }
 }
 
@@ -394,14 +394,14 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	st.oblkack |= ack
 	st.oblkAcked = time.Now()
 	wakeup = true
-	st.s_ack++
+	st.s_recvack++
     } else if st.oblk.blkid + 1== blkid {
 	if ack == 0 {
 	    st.Infof("missing prev ack")
 	    st.oblkack = 0xffffffff
 	    st.oblkAcked = time.Now()
 	    wakeup = true
-	    st.s_ack++
+	    st.s_recvack++
 	}
     }
     st.m.Unlock()
@@ -568,6 +568,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	}
 	st.m.Unlock()
 	if sendack {
+	    st.s_sendack++
 	    q_sendmsg <- ackmsg
 	    lastAck = time.Now()
 	}
@@ -575,7 +576,9 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	for len(st.q_work) > 0 {
 	    <-st.q_work
 	}
-	st.Infof("wakeup")
+	st.Infof("wakeup [%d %d %d] o:0x%x:0x%x i:0x%x",
+		st.s_sendmsg, st.s_sendack, st.s_recvack,
+		st.oblk.rest, st.oblkack, st.iblk.rest)
     }
     st.Infof("done")
 }
@@ -608,7 +611,7 @@ func (st *Stream)Destroy() {
     close(st.q_work)
     close(st.q_acked)
     // show stats
-    st.Infof("total %d sends %d acks", st.s_send, st.s_ack)
+    st.Infof("total [send %d msgs %d acks] [recv %d acks]", st.s_sendmsg, st.s_sendack, st.s_recvack)
     st.Infof("oblk errors %d %d %d %d",
 	st.oblk.s_oldblkid, st.oblk.s_badblkid,
 	st.oblk.s_baddata, st.oblk.s_dup)

@@ -17,6 +17,10 @@ import (
     "github.com/hshimamoto/go-session"
 )
 
+const BlockPartSize = 1024
+const BlockPartNumber = 32
+const BlockBufferSize = BlockPartSize * BlockPartNumber
+
 func MessageMask(msg []byte) {
     l := len(msg)
     if l < 12 {
@@ -153,7 +157,7 @@ type DataBlock struct {
     data []byte
     rest uint32
     sz uint32
-    msgs [32]([]byte)
+    msgs [BlockPartNumber]([]byte)
     //
     tag string
     // stats
@@ -176,14 +180,14 @@ func (blk *DataBlock)Infof(f string, args ...interface{}) {
 }
 
 func (blk *DataBlock)SetupMessages(data []byte) {
-    nparts := (len(data) + 1023) / 1024
+    nparts := (len(data) + BlockPartSize - 1) / BlockPartSize
     l := len(data)
     c := 0
-    for i := 0; i < 32; i++ {
+    for i := 0; i < BlockPartNumber; i++ {
 	// create msg template
 	n := l
-	if n > 1024 {
-	    n = 1024
+	if n > BlockPartSize {
+	    n = BlockPartSize
 	}
 	msg := make([]byte, 12+4+16+n)
 	binary.LittleEndian.PutUint32(msg[16 +  0:], blk.blkid)
@@ -221,13 +225,13 @@ func (blk *DataBlock)GetBlock(data []byte) {
 	return
     }
     // check
-    if nr_parts > 32 || partid >= 32 || partlen > 1024 {
+    if nr_parts > BlockPartNumber || partid >= BlockPartNumber || partlen > BlockPartSize {
 	// bad data
 	blk.s_baddata++
 	return
     }
     // fill bits
-    for i := nr_parts; i < 32; i++ {
+    for i := nr_parts; i < BlockPartNumber; i++ {
 	blk.rest |= 1 << i
     }
     // already have?
@@ -236,9 +240,9 @@ func (blk *DataBlock)GetBlock(data []byte) {
 	return
     }
     if blk.data == nil {
-	blk.data = make([]byte, 32768)
+	blk.data = make([]byte, BlockBufferSize)
     }
-    offset := partid * 1024
+    offset := partid * BlockPartSize
     copy(blk.data[offset:], data[:partlen])
     //logrus.Infof("copied [%s]", string(data[:partlen]))
     blk.rest |= 1 << partid
@@ -265,7 +269,7 @@ type Buffer struct {
 
 func NewBuffer() *Buffer {
     return &Buffer{
-	data: make([]byte, 32768),
+	data: make([]byte, BlockBufferSize),
 	idx: 0,
     }
 }
@@ -339,7 +343,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	q <- msg
 	return
     }
-    for i := 0; i < 32; i++ {
+    for i := 0; i < BlockPartNumber; i++ {
 	if oblk.rest & (1 << i) == 0 {
 	    continue
 	}

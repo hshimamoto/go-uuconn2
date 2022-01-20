@@ -547,9 +547,15 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	st.CheckOutblockAck()
 	sendack := false
 	st.m.Lock()
-	if st.iblk.rest == 0xffffffff || time.Since(lastAck) > time.Millisecond * 10 {
-	    binary.LittleEndian.PutUint32(ackmsg[16:], st.iblk.blkid)
-	    binary.LittleEndian.PutUint32(ackmsg[20:], st.iblk.rest)
+	blkid := st.iblk.blkid
+	ack := st.iblk.rest
+	if ack == 0 && blkid > 0 {
+	    blkid--
+	    ack = 0xffffffff
+	}
+	if ack == 0xffffffff || time.Since(lastAck) > time.Millisecond * 5 {
+	    binary.LittleEndian.PutUint32(ackmsg[16:], blkid)
+	    binary.LittleEndian.PutUint32(ackmsg[20:], ack)
 	    sendack = true
 	}
 	if st.iblk.rest == 0xffffffff {

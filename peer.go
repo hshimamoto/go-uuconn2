@@ -17,7 +17,7 @@ import (
     "github.com/hshimamoto/go-session"
 )
 
-const BlockPartSize = 1024
+const BlockPartSize = 1280
 const BlockPartNumber = 32
 const BlockBufferSize = BlockPartSize * BlockPartNumber
 

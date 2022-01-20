@@ -617,10 +617,11 @@ func (st *Stream)Destroy() {
     close(st.q_work)
     close(st.q_acked)
     // show stats
-    st.Infof("total [send %d msgs %d acks] [recv %d acks]", st.s_sendmsg, st.s_sendack, st.s_recvack)
-    st.Infof("oblk errors %d %d %d %d",
-	st.oblk.s_oldblkid, st.oblk.s_badblkid,
-	st.oblk.s_baddata, st.oblk.s_dup)
+    s_iblk := fmt.Sprintf("[iblk err %d %d %d %d]",
+	st.iblk.s_oldblkid, st.iblk.s_badblkid,
+	st.iblk.s_baddata, st.iblk.s_dup)
+    st.Infof("total [send %d msgs %d acks] [recv %d acks] %s",
+	st.s_sendmsg, st.s_sendack, st.s_recvack, s_iblk)
 }
 
 type Connection struct {

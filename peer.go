@@ -618,6 +618,8 @@ type Connection struct {
     m sync.Mutex
     q_sendmsg chan []byte
     running bool
+    //
+    updateTime time.Time
 }
 
 func NewConnection(peerid uint32) *Connection {
@@ -625,6 +627,7 @@ func NewConnection(peerid uint32) *Connection {
 	remotes: []string{},
 	peerid: peerid,
 	startTime: time.Now(),
+	updateTime: time.Now(),
 	q_sendmsg: make(chan []byte, 64),
     }
     return c
@@ -647,14 +650,14 @@ func (c *Connection)Infof(f string, args ...interface{}) {
 func (c *Connection)Update(addr string) {
     c.m.Lock()
     defer c.m.Unlock()
-    l := len(c.remotes)
-    if l < 1 || c.remotes[l-1] != addr {
-	c.remotes = append(c.remotes, addr)
+    remotes := []string{}
+    for _, a := range c.remotes {
+	if a != addr {
+	    remotes = append(remotes, a)
+	}
     }
-    // shrink
-    if l > 30 {
-	c.remotes = c.remotes[l-10:l]
-    }
+    c.remotes = append(remotes, addr)
+    c.updateTime = time.Now()
 }
 
 func (c *Connection)Freshers() []string {
@@ -795,6 +798,7 @@ func (c *Connection)Run(q chan UDPMessage) {
 func (c *Connection)Stop() {
     c.running = false
     c.q_sendmsg <- []byte{}
+    c.Infof("stopped")
 }
 
 type LocalServer struct {
@@ -1433,6 +1437,11 @@ func (p *Peer)API_handler(conn net.Conn) {
 func (p *Peer)Housekeeper_Connection(c *Connection) {
     remotes := c.Freshers()
     now := time.Now()
+    if time.Since(c.updateTime) > 5 * time.Minute {
+	c.Stop()
+	// TODO remove it
+	return
+    }
     if now.After(c.lastProbe.Add(time.Second * 10)) {
 	for _, r := range remotes {
 	    if addr, err := net.ResolveUDPAddr("udp", r); err == nil {

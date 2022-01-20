@@ -557,7 +557,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	    blkid--
 	    ack = 0xffffffff
 	}
-	if ack == 0xffffffff || time.Since(lastAck) > time.Millisecond * 5 {
+	if ack == 0xffffffff || time.Since(lastAck) > time.Millisecond {
 	    binary.LittleEndian.PutUint32(ackmsg[16:], blkid)
 	    binary.LittleEndian.PutUint32(ackmsg[20:], ack)
 	    sendack = true

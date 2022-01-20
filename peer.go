@@ -1512,6 +1512,38 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
     }
 }
 
+func (p *Peer)Housekeeper_Sweeper() {
+    // sweep streams
+    p.m.Lock()
+    for _, serv := range p.lservs {
+	serv.remote.SweepStreams()
+    }
+    for _, serv := range p.rservs {
+	serv.remote.SweepStreams()
+    }
+    p.m.Unlock()
+    // sweep remote servers
+    p.m.Lock()
+    rservs := []*RemoteServer{}
+    for _, serv := range p.rservs {
+	if serv.running || time.Since(serv.lastUpdate) < time.Minute {
+	    rservs = append(rservs, serv)
+	}
+    }
+    p.rservs = rservs
+    p.m.Unlock()
+    // sweep connection
+    p.m.Lock()
+    conns := []*Connection{}
+    for _, c := range p.conns {
+	if c.running || time.Since(c.stopTime) < time.Second {
+	    conns = append(conns, c)
+	}
+    }
+    p.conns = conns
+    p.m.Unlock()
+}
+
 func (p *Peer)Housekeeper() {
     for p.running {
 	// check sockets
@@ -1551,35 +1583,8 @@ func (p *Peer)Housekeeper() {
 	    serv.remote.KickStreams()
 	}
 	p.m.Unlock()
-	// sweep streams
-	p.m.Lock()
-	for _, serv := range p.lservs {
-	    serv.remote.SweepStreams()
-	}
-	for _, serv := range p.rservs {
-	    serv.remote.SweepStreams()
-	}
-	p.m.Unlock()
-	// sweep remote servers
-	p.m.Lock()
-	rservs := []*RemoteServer{}
-	for _, serv := range p.rservs {
-	    if serv.running || time.Since(serv.lastUpdate) < time.Minute {
-		rservs = append(rservs, serv)
-	    }
-	}
-	p.rservs = rservs
-	p.m.Unlock()
-	// sweep connection
-	p.m.Lock()
-	conns = []*Connection{}
-	for _, c := range p.conns {
-	    if c.running || time.Since(c.stopTime) < time.Second {
-		conns = append(conns, c)
-	    }
-	}
-	p.conns = conns
-	p.m.Unlock()
+	// sweeper
+	p.Housekeeper_Sweeper()
 	time.Sleep(time.Second * 5)
     }
 }

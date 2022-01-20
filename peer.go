@@ -203,7 +203,7 @@ func (blk *DataBlock)SetupMessages(data []byte) {
 	    break
 	}
     }
-    blk.Infof("%d parts rest 0x%x", nparts, blk.rest)
+    //blk.Infof("%d parts rest 0x%x", nparts, blk.rest)
 }
 
 func (blk *DataBlock)GetBlock(data []byte) {
@@ -219,7 +219,7 @@ func (blk *DataBlock)GetBlock(data []byte) {
 	return
     }
     if blk.blkid > blkid {
-	blk.Infof("blkid mismatch %d vs %d", blk.blkid, blkid)
+	//blk.Infof("blkid mismatch %d vs %d", blk.blkid, blkid)
 	// ignore
 	blk.s_badblkid++
 	return
@@ -319,7 +319,7 @@ func (st *Stream)SetWriter(w io.Writer) {
 }
 
 func (st *Stream)FlushInblock() {
-    st.Infof("Flush %d bytes", st.iblk.sz)
+    //st.Infof("Flush %d bytes", st.iblk.sz)
     st.writer.Write(st.iblk.data[:st.iblk.sz])
 }
 
@@ -576,9 +576,11 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	for len(st.q_work) > 0 {
 	    <-st.q_work
 	}
+	/*
 	st.Infof("wakeup [%d %d %d] o:0x%x:0x%x i:0x%x",
 		st.s_sendmsg, st.s_sendack, st.s_recvack,
 		st.oblk.rest, st.oblkack, st.iblk.rest)
+	*/
     }
     st.Infof("done")
 }

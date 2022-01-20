@@ -626,6 +626,10 @@ type Connection struct {
     running bool
     //
     updateTime time.Time
+    // stats
+    s_sendmsg uint32
+    s_sendbytes uint64
+    s_lookuplocalstream, s_lookupremotestream uint32
 }
 
 func NewConnection(peerid uint32) *Connection {
@@ -642,10 +646,13 @@ func NewConnection(peerid uint32) *Connection {
 func (c *Connection)String() string {
     c.m.Lock()
     defer c.m.Unlock()
-    return fmt.Sprintf("0x%x %s [%v] local:%d remote:%d %v",
+    stats := fmt.Sprintf("[send %d msgs %d bytes] [recv %d locals %d remotes]",
+	    c.s_sendmsg, c.s_sendbytes,
+	    c.s_lookuplocalstream, c.s_lookupremotestream)
+    return fmt.Sprintf("0x%x %s [%v] local:%d remote:%d %v %s",
 	    c.peerid, c.hostname, time.Since(c.startTime),
 	    len(c.lstreams), len(c.rstreams),
-	    c.remotes)
+	    c.remotes, stats)
 }
 
 func (c *Connection)Infof(f string, args ...interface{}) {
@@ -691,7 +698,7 @@ func (c *Connection)NewLocalStream() *Stream {
 func (c *Connection)LookupLocalStream(lid uint32) *Stream {
     c.m.Lock()
     defer c.m.Unlock()
-    c.Infof("looking for local stream id 0x%x from %d", lid, len(c.lstreams))
+    c.s_lookuplocalstream++
     for _, s := range c.lstreams {
 	if s.streamid == lid {
 	    return s
@@ -711,7 +718,7 @@ func (c *Connection)NewRemoteStream(rid uint32) *Stream {
 func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
     c.m.Lock()
     defer c.m.Unlock()
-    c.Infof("looking for remote stream id 0x%x from %d", rid, len(c.rstreams))
+    c.s_lookupremotestream++
     for _, s := range c.rstreams {
 	if s.streamid == rid {
 	    return s
@@ -721,6 +728,9 @@ func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
 }
 
 func (c *Connection)KickStreams() {
+    if len(c.lstreams) == 0 && len(c.rstreams) == 0 {
+	return
+    }
     c.Infof("KickStreams")
     for _, st := range c.lstreams {
 	st.KickWorkers()
@@ -731,6 +741,9 @@ func (c *Connection)KickStreams() {
 }
 
 func (c *Connection)SweepStreams() {
+    if len(c.lstreams) == 0 && len(c.rstreams) == 0 {
+	return
+    }
     c.Infof("SweepStreams")
     sweeped := []*Stream{}
     streams := []*Stream{}
@@ -787,7 +800,8 @@ func (c *Connection)Run(q chan UDPMessage) {
     for c.running {
 	sendmsg := <-c.q_sendmsg
 	if len(sendmsg) > 12 {
-	    c.Infof("sendmsg %d bytes", len(sendmsg))
+	    c.s_sendmsg++
+	    c.s_sendbytes += uint64(len(sendmsg))
 	    r := c.Freshers()[0]
 	    addr, err := net.ResolveUDPAddr("udp", r)
 	    if err != nil {

@@ -639,6 +639,7 @@ type Connection struct {
     running bool
     //
     updateTime time.Time
+    stopTime time.Time
     // stats
     s_sendmsg uint32
     s_sendbytes uint64
@@ -651,6 +652,7 @@ func NewConnection(peerid uint32) *Connection {
 	peerid: peerid,
 	startTime: time.Now(),
 	updateTime: time.Now(),
+	stopTime: time.Now(),
 	q_sendmsg: make(chan []byte, 64),
     }
     return c
@@ -826,12 +828,17 @@ func (c *Connection)Run(q chan UDPMessage) {
 	    q <- UDPMessage{ msg:sendmsg, addr: addr }
 	}
     }
+    c.Infof("stopped")
+    c.stopTime = time.Now()
 }
 
 func (c *Connection)Stop() {
+    if c.running == false {
+	return
+    }
     c.running = false
     c.q_sendmsg <- []byte{}
-    c.Infof("stopped")
+    c.Infof("stopping")
 }
 
 type LocalServer struct {
@@ -1561,6 +1568,16 @@ func (p *Peer)Housekeeper() {
 	    }
 	}
 	p.rservs = rservs
+	p.m.Unlock()
+	// sweep connection
+	p.m.Lock()
+	conns = []*Connection{}
+	for _, c := range p.conns {
+	    if c.running || time.Since(c.stopTime) < time.Second {
+		conns = append(conns, c)
+	    }
+	}
+	p.conns = conns
 	p.m.Unlock()
 	time.Sleep(time.Second * 5)
     }

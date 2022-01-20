@@ -950,6 +950,12 @@ func (rs *RemoteServer)Run() {
 
     // forground runner
     st.Run("rrcv", "rsck", rs.remote.q_sendmsg, conn)
+
+    // stop streams
+    st.Stop()
+
+    rs.running = false
+    rs.lastUpdate = time.Now()
 }
 
 func (rs *RemoteServer)Stop() {
@@ -1531,7 +1537,7 @@ func (p *Peer)Housekeeper() {
 	    serv.remote.KickStreams()
 	}
 	p.m.Unlock()
-	// sweep
+	// sweep streams
 	p.m.Lock()
 	for _, serv := range p.lservs {
 	    serv.remote.SweepStreams()
@@ -1539,6 +1545,16 @@ func (p *Peer)Housekeeper() {
 	for _, serv := range p.rservs {
 	    serv.remote.SweepStreams()
 	}
+	p.m.Unlock()
+	// sweep remote servers
+	p.m.Lock()
+	rservs := []*RemoteServer{}
+	for _, serv := range p.rservs {
+	    if serv.running || time.Since(serv.lastUpdate) < time.Minute {
+		rservs = append(rservs, serv)
+	    }
+	}
+	p.rservs = rservs
 	p.m.Unlock()
 	time.Sleep(time.Second * 5)
     }

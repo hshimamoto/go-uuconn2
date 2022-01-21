@@ -574,6 +574,10 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	if sendack {
 	    st.s_sendack++
 	    q_sendmsg <- ackmsg
+	    if ack == 0xffffffff {
+		q_sendmsg <- ackmsg
+		q_sendmsg <- ackmsg
+	    }
 	    lastAck = time.Now()
 	}
 	<-st.q_work

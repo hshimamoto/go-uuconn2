@@ -380,6 +380,10 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	st.oblkRTTCheckTime = time.Now()
     }
     cnt := 0
+    maxresend := st.oblkParts / 2
+    if acked == 0 {
+	maxresend = 1
+    }
     for i := 0; i < BlockPartNumber; i++ {
 	if oblk.rest & (1 << i) == 0 {
 	    continue
@@ -396,7 +400,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	if resend {
 	    st.s_resendmsg++
 	    cnt++
-	    if cnt > st.oblkParts / 2 {
+	    if cnt >= maxresend {
 		break
 	    }
 	}

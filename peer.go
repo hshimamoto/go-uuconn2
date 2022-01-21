@@ -296,7 +296,7 @@ type Stream struct {
     //
     sweep bool
     // stats
-    s_sendmsg, s_sendack, s_recvack uint32
+    s_sendmsg, s_resendmsg, s_sendack, s_recvack uint32
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -361,6 +361,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	q <- msg
 	return
     }
+    cnt := 0
     for i := 0; i < BlockPartNumber; i++ {
 	if oblk.rest & (1 << i) == 0 {
 	    continue
@@ -374,6 +375,13 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	binary.LittleEndian.PutUint32(msg[12:], st.streamid)
 	q <- msg
 	st.s_sendmsg++
+	if resend {
+	    st.s_resendmsg++
+	    cnt++
+	    if cnt > BlockPartNumber / 8 {
+		break
+	    }
+	}
     }
     st.m.Lock()
     st.oblkResend = true
@@ -643,8 +651,8 @@ func (st *Stream)Destroy() {
     s_iblk := fmt.Sprintf("[iblk err %d %d %d %d]",
 	st.iblk.s_oldblkid, st.iblk.s_badblkid,
 	st.iblk.s_baddata, st.iblk.s_dup)
-    st.Infof("total [send %d msgs %d acks] [recv %d acks] %s",
-	st.s_sendmsg, st.s_sendack, st.s_recvack, s_iblk)
+    st.Infof("total [send %d (%d resend) msgs %d acks] [recv %d acks] %s",
+	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.s_recvack, s_iblk)
 }
 
 type Connection struct {

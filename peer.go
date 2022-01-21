@@ -286,6 +286,8 @@ type Stream struct {
     oblkLastSend time.Time
     oblkResend bool
     oblkParts int
+    oblkRTTCheckTime time.Time
+    oblkRTT time.Duration
     // incoming block
     iblk *DataBlock
     writer io.Writer
@@ -374,6 +376,9 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	q <- msg
 	return
     }
+    if resend == false {
+	st.oblkRTTCheckTime = time.Now()
+    }
     cnt := 0
     for i := 0; i < BlockPartNumber; i++ {
 	if oblk.rest & (1 << i) == 0 {
@@ -433,6 +438,9 @@ func (st *Stream)GetAck(blkid, ack uint32) {
     wakeup := false
     st.m.Lock()
     if st.oblk.blkid == blkid {
+	if st.oblkack == 0 {
+	    st.oblkRTT = (st.oblkRTT + time.Since(st.oblkRTTCheckTime)) / 2
+	}
 	st.oblkack |= ack
 	st.oblkAcked = time.Now()
 	wakeup = true
@@ -577,6 +585,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
     st.oblkAcked = time.Now()
     st.oblkLastSend = time.Now()
     st.oblkParts = BlockPartNumber
+    st.oblkRTT = 0
     st.running = true
     // start SelfReader
     go st.SelfReader(conn)
@@ -661,8 +670,8 @@ func (st *Stream)Destroy() {
     s_iblk := fmt.Sprintf("[iblk err %d %d %d %d]",
 	st.iblk.s_oldblkid, st.iblk.s_badblkid,
 	st.iblk.s_baddata, st.iblk.s_dup)
-    st.Infof("total [send %d (%d resend) msgs %d acks] [recv %d acks] %s",
-	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.s_recvack, s_iblk)
+    st.Infof("total [send %d (%d resend) msgs %d acks RTT(%v)] [recv %d acks] %s",
+	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT, st.s_recvack, s_iblk)
 }
 
 type Connection struct {

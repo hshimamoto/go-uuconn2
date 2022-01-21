@@ -285,6 +285,7 @@ type Stream struct {
     oblkAcked time.Time
     oblkLastSend time.Time
     oblkResend bool
+    oblkParts int
     // incoming block
     iblk *DataBlock
     writer io.Writer
@@ -339,14 +340,26 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	return
     }
     if resend {
-	if time.Since(st.oblkLastSend) < time.Millisecond {
+	d := time.Millisecond
+	if time.Since(st.oblkLastSend) < d {
 	    // TODO?
 	    go func() {
-		time.Sleep(time.Millisecond)
+		time.Sleep(d)
 		st.q_work <- true
 	    }()
 	    return
 	}
+	st.m.Lock()
+	if st.oblkParts > BlockPartNumber / 8 {
+	    st.oblkParts--
+	}
+	st.m.Unlock()
+    } else {
+	st.m.Lock()
+	if st.oblkParts < BlockPartNumber {
+	    st.oblkParts++
+	}
+	st.m.Unlock()
     }
     st.oblkLastSend = time.Now()
     if oblk.blkid == 0xffffffff {
@@ -378,7 +391,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	if resend {
 	    st.s_resendmsg++
 	    cnt++
-	    if cnt > BlockPartNumber / 8 {
+	    if cnt > st.oblkParts / 2 {
 		break
 	    }
 	}
@@ -465,7 +478,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
     go func() {
 	for st.running {
 	    m.Lock()
-	    rest := len(curr.data) - curr.idx
+	    rest := st.oblkParts * BlockPartSize - curr.idx
 	    if rest <= 0 {
 		m.Unlock()
 		<-q_wait // wait buffer
@@ -563,6 +576,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
     lastAck := time.Now()
     st.oblkAcked = time.Now()
     st.oblkLastSend = time.Now()
+    st.oblkParts = BlockPartNumber
     st.running = true
     // start SelfReader
     go st.SelfReader(conn)
@@ -601,10 +615,6 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	if sendack {
 	    st.s_sendack++
 	    q_sendmsg <- ackmsg
-	    if ack == 0xffffffff {
-		q_sendmsg <- ackmsg
-		q_sendmsg <- ackmsg
-	    }
 	    lastAck = time.Now()
 	}
 	<-st.q_work

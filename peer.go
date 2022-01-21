@@ -283,6 +283,8 @@ type Stream struct {
     oblk *DataBlock
     oblkack uint32
     oblkAcked time.Time
+    oblkLastSend time.Time
+    oblkResend bool
     // incoming block
     iblk *DataBlock
     writer io.Writer
@@ -331,10 +333,22 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
     st.m.Lock()
     oblk := st.oblk
     acked := st.oblkack
+    resend := st.oblkResend
     st.m.Unlock()
     if oblk == nil {
 	return
     }
+    if resend {
+	if time.Since(st.oblkLastSend) < time.Millisecond {
+	    // TODO?
+	    go func() {
+		time.Sleep(time.Millisecond)
+		st.q_work <- true
+	    }()
+	    return
+	}
+    }
+    st.oblkLastSend = time.Now()
     if oblk.blkid == 0xffffffff {
 	if oblk.rest == 0 {
 	    return
@@ -361,6 +375,9 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	q <- msg
 	st.s_sendmsg++
     }
+    st.m.Lock()
+    st.oblkResend = true
+    st.m.Unlock()
 }
 
 func (st *Stream)GetBlock(data []byte) {
@@ -420,6 +437,7 @@ func (st *Stream)CheckOutblockAck() {
     if st.oblkack == 0xffffffff {
 	st.oblk.NextBlock()
 	st.oblkack = 0
+	st.oblkResend = false
 	acked = true
     }
     st.m.Unlock()
@@ -536,6 +554,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
     binary.LittleEndian.PutUint32(ackmsg[12:], st.streamid)
     lastAck := time.Now()
     st.oblkAcked = time.Now()
+    st.oblkLastSend = time.Now()
     st.running = true
     // start SelfReader
     go st.SelfReader(conn)

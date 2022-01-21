@@ -418,7 +418,7 @@ func (st *Stream)GetBlock(data []byte) {
     }
     blkid := binary.LittleEndian.Uint32(data[0:4])
     if blkid == 0xffffffff {
-	logrus.Infof("remote closed")
+	st.Infof("remote closed")
 	st.m.Lock()
 	st.ropen = false
 	st.m.Unlock()
@@ -518,6 +518,9 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    m.Unlock()
 	    st.Infof("Read: %v", err)
 	    closed = true
+	    if len(q_read) == 0 {
+		q_read <- true
+	    }
 	    break
 	}
     }()
@@ -561,6 +564,9 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    rest := st.oblk.rest
 	    st.m.Unlock()
 	    // check data to send
+	    if curr.idx == drain {
+		curr.idx = 0  // FORCE to reset
+	    }
 	    if curr.idx == 0 && rest == 0 {
 		// no data
 		st.Infof("closed and no data")

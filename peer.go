@@ -4,7 +4,6 @@ package main
 import (
     "encoding/binary"
     "fmt"
-    "io"
     "math/rand"
     "net"
     "os"
@@ -295,7 +294,6 @@ type Stream struct {
     oblkRTT time.Duration
     // incoming block
     iblk *DataBlock
-    writer io.Writer
     // mutex
     m sync.Mutex
     //

@@ -467,9 +467,11 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	st.s_recvack++
     } else if st.oblk.blkid == blkid + 1 {
 	// ack for prevous block
+	/*
 	st.Infof("prev ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
 		st.oblk.blkid, st.oblkack, blkid, ack)
-	wakeup = true
+	*/
+	// counts but ignore
 	st.s_recvack++
     } else {
 	st.Infof("unknown ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
@@ -628,6 +630,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
     copy(ackmsg[0:4], []byte(ackcode))
     binary.LittleEndian.PutUint32(ackmsg[12:], st.streamid)
     lastAck := time.Now()
+    prevack := uint32(0)
     st.oblkAcked = time.Now()
     st.oblkLastSend = time.Now()
     st.oblkParts = BlockPartNumber
@@ -659,9 +662,10 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	    blkid--
 	    ack = 0xffffffff
 	}
-	if ack == 0xffffffff || time.Since(lastAck) > time.Millisecond {
+	if (ack == 0xffffffff && prevack != 0xffffffff) || time.Since(lastAck) > time.Millisecond {
 	    binary.LittleEndian.PutUint32(ackmsg[16:], blkid)
 	    binary.LittleEndian.PutUint32(ackmsg[20:], ack)
+	    prevack = ack
 	    sendack = true
 	}
 	if st.iblk.rest == 0xffffffff {

@@ -807,7 +807,7 @@ func (c *Connection)KickStreams() {
     if len(c.lstreams) == 0 && len(c.rstreams) == 0 {
 	return
     }
-    c.Infof("KickStreams")
+    //c.Infof("KickStreams")
     for _, st := range c.lstreams {
 	st.KickWorkers()
     }
@@ -820,7 +820,7 @@ func (c *Connection)SweepStreams() {
     if len(c.lstreams) == 0 && len(c.rstreams) == 0 {
 	return
     }
-    c.Infof("SweepStreams")
+    //c.Infof("SweepStreams")
     sweeped := []*Stream{}
     streams := []*Stream{}
     for _, st := range c.lstreams {

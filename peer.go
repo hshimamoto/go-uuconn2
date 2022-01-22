@@ -1348,6 +1348,7 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     p.m.Lock()
     p.rservs = append(p.rservs, rs)
     p.m.Unlock()
+    st.ropen = true
     go rs.Run()
 }
 

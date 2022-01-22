@@ -66,6 +66,11 @@ func NewLocalSocket() *LocalSocket {
     return s
 }
 
+func (s *LocalSocket)Infof(f string, args ...interface{}) {
+    header := fmt.Sprintf("sock:%v ", s.sock.LocalAddr())
+    logrus.Infof(header + f, args...)
+}
+
 func (s *LocalSocket)UpdateGlobal(global string) {
     updated := false
     old := ""
@@ -77,7 +82,7 @@ func (s *LocalSocket)UpdateGlobal(global string) {
     }
     s.m.Unlock()
     if updated {
-	logrus.Infof("update global %s to %s", old, global)
+	s.Infof("update global [%s] to [%s]", old, global)
     }
 }
 
@@ -118,7 +123,7 @@ func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
 		continue
 	    }
 	    s.s_recverr++
-	    logrus.Infof("ReadFromUDP: %v", err)
+	    s.Infof("ReadFromUDP: %v", err)
 	    continue
 	}
 	s.s_recv++
@@ -139,7 +144,7 @@ func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
 	    cb(s, addr, msg)
 	    d := time.Since(prev)
 	    if d > time.Second {
-		logrus.Infof("handler takes too long %v %s", d, msg[0:4])
+		s.Infof("handler takes too long %v %s", d, msg[0:4])
 	    }
 	}
     }

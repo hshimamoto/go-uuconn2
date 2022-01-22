@@ -290,6 +290,7 @@ type Stream struct {
     oblkAcked time.Time
     oblkLastSend time.Time
     oblkResend bool
+    oblkTrigSend bool
     oblkParts int
     oblkRTTCheckTime time.Time
     oblkRTT time.Duration
@@ -345,13 +346,21 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	return
     }
     if resend {
-	d := time.Millisecond
+	d := 10 * time.Millisecond
 	if time.Since(st.oblkLastSend) < d {
-	    // TODO?
-	    go func() {
-		time.Sleep(d)
-		st.q_work <- true
-	    }()
+	    st.m.Lock()
+	    trig := st.oblkTrigSend
+	    st.oblkTrigSend = true
+	    st.m.Unlock()
+	    if trig == false {
+		go func() {
+		    time.Sleep(10 * time.Millisecond)
+		    st.m.Lock()
+		    st.oblkTrigSend = false
+		    st.m.Unlock()
+		    st.q_work <- true
+		}()
+	    }
 	    return
 	}
 	st.m.Lock()
@@ -453,13 +462,11 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	wakeup = true
 	st.s_recvack++
     } else if st.oblk.blkid == blkid + 1 {
-	if ack == 0 {
-	    st.Infof("missing prev ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
-		    st.oblk.blkid, st.oblkack, blkid, ack)
-	    st.oblkack = 0xffffffff
-	    wakeup = true
-	    st.s_recvack++
-	}
+	// ack for prevous block
+	st.Infof("prev ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
+		st.oblk.blkid, st.oblkack, blkid, ack)
+	wakeup = true
+	st.s_recvack++
     } else {
 	st.Infof("unknown ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
 		st.oblk.blkid, st.oblkack, blkid, ack)

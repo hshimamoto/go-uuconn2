@@ -301,6 +301,7 @@ type Stream struct {
     //
     q_work chan bool
     q_acked chan bool
+    q_flush chan bool
     //
     sweep bool
     // stats
@@ -317,6 +318,7 @@ func NewStream(streamid uint32) *Stream {
     st.iblk = NewDataBlock(fmt.Sprintf("iblk st:0x%x ", streamid))
     st.q_work = make(chan bool, 64)
     st.q_acked = make(chan bool, 64)
+    st.q_flush = make(chan bool, 64)
     return st
 }
 
@@ -325,15 +327,11 @@ func (st *Stream)Infof(f string, args ...interface{}) {
     logrus.Infof(header + f, args...)
 }
 
-func (st *Stream)SetWriter(w io.Writer) {
-    st.writer = w
-}
-
-func (st *Stream)FlushInblock() {
+func (st *Stream)FlushInblock(conn net.Conn) {
     //st.Infof("Flush %d bytes", st.iblk.sz)
     sz := 0
     for uint32(sz) < st.iblk.sz {
-	n, _ := st.writer.Write(st.iblk.data[:st.iblk.sz])
+	n, _ := conn.Write(st.iblk.data[sz:st.iblk.sz])
 	sz += n
     }
 }
@@ -598,6 +596,21 @@ func (st *Stream)SelfReader(conn net.Conn) {
     }
 }
 
+func (st *Stream)SelfWriter(conn net.Conn) {
+    for st.running {
+	st.m.Lock()
+	rest := st.iblk.rest
+	st.m.Unlock()
+	if rest == 0xffffffff {
+	    st.FlushInblock(conn)
+	    st.m.Lock()
+	    st.iblk.NextBlock()
+	    st.m.Unlock()
+	}
+	<-st.q_flush
+    }
+}
+
 func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn) {
     ackmsg := []byte("rackSSSSDDDDXXXXBBBBAAAA")
     copy(ackmsg[0:4], []byte(ackcode))
@@ -610,6 +623,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
     st.running = true
     // start SelfReader
     go st.SelfReader(conn)
+    go st.SelfWriter(conn)
     for st.running {
 	// no acks ?
 	if time.Since(st.oblkAcked) > time.Minute {
@@ -625,6 +639,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	st.SendBlock(code, q_sendmsg)
 	st.CheckOutblockAck()
 	sendack := false
+	flush := false
 	st.m.Lock()
 	blkid := st.iblk.blkid
 	ack := st.iblk.rest
@@ -638,13 +653,15 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	    sendack = true
 	}
 	if st.iblk.rest == 0xffffffff {
-	    st.FlushInblock()
-	    st.iblk.NextBlock()
+	    flush = true
 	}
 	if st.ropen == false {
 	    sendack = false
 	}
 	st.m.Unlock()
+	if flush {
+	    st.q_flush <- true
+	}
 	if sendack {
 	    st.s_sendack++
 	    q_sendmsg <- ackmsg
@@ -680,6 +697,9 @@ func (st *Stream)KickWorkers() {
     if len(st.q_acked) == 0 {
 	st.q_acked <- true
     }
+    if len(st.q_flush) == 0 {
+	st.q_flush <- true
+    }
 }
 
 func (st *Stream)Destroy() {
@@ -690,6 +710,7 @@ func (st *Stream)Destroy() {
     // close queue
     close(st.q_work)
     close(st.q_acked)
+    close(st.q_flush)
     // show stats
     s_iblk := fmt.Sprintf("[iblk err %d %d %d %d]",
 	st.iblk.s_oldblkid, st.iblk.s_badblkid,
@@ -959,7 +980,6 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     ls.s_accept++
     // prepare stream
     st := ls.remote.NewLocalStream()
-    st.SetWriter(lconn)
     st.lopen = true
     // prepare message
     msg := []byte("openSSSSDDDDXXXX" + ls.raddr)
@@ -1035,7 +1055,6 @@ func (rs *RemoteServer)Run() {
     rs.remote.q_sendmsg <- ack
 
     st := rs.stream
-    st.SetWriter(conn)
 
     // forground runner
     st.Run("rrcv", "rsck", rs.remote.q_sendmsg, conn)

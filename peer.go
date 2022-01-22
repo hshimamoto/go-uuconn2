@@ -444,12 +444,12 @@ func (st *Stream)GetBlock(data []byte) {
 func (st *Stream)GetAck(blkid, ack uint32) {
     wakeup := false
     st.m.Lock()
+    st.oblkAcked = time.Now()
     if st.oblk.blkid == blkid {
 	if st.oblkack == 0 {
 	    st.oblkRTT = (st.oblkRTT + time.Since(st.oblkRTTCheckTime)) / 2
 	}
 	st.oblkack |= ack
-	st.oblkAcked = time.Now()
 	wakeup = true
 	st.s_recvack++
     } else if st.oblk.blkid == blkid + 1 {
@@ -457,7 +457,6 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	    st.Infof("missing prev ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
 		    st.oblk.blkid, st.oblkack, blkid, ack)
 	    st.oblkack = 0xffffffff
-	    st.oblkAcked = time.Now()
 	    wakeup = true
 	    st.s_recvack++
 	}

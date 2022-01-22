@@ -641,6 +641,9 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	    st.FlushInblock()
 	    st.iblk.NextBlock()
 	}
+	if st.ropen == false {
+	    sendack = false
+	}
 	st.m.Unlock()
 	if sendack {
 	    st.s_sendack++

@@ -304,7 +304,8 @@ type Stream struct {
     //
     sweep bool
     // stats
-    s_sendmsg, s_resendmsg, s_sendack, s_recvack uint32
+    s_sendmsg, s_resendmsg, s_sendack uint32
+    s_recvack, s_recvunkack uint32
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -454,14 +455,19 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	st.oblkAcked = time.Now()
 	wakeup = true
 	st.s_recvack++
-    } else if st.oblk.blkid + 1== blkid {
+    } else if st.oblk.blkid == blkid + 1 {
 	if ack == 0 {
-	    st.Infof("missing prev ack")
+	    st.Infof("missing prev ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
+		    st.oblk.blkid, st.oblkack, blkid, ack)
 	    st.oblkack = 0xffffffff
 	    st.oblkAcked = time.Now()
 	    wakeup = true
 	    st.s_recvack++
 	}
+    } else {
+	st.Infof("unknown ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
+		st.oblk.blkid, st.oblkack, blkid, ack)
+	st.s_recvunkack++
     }
     st.m.Unlock()
     if wakeup {
@@ -685,8 +691,9 @@ func (st *Stream)Destroy() {
     s_iblk := fmt.Sprintf("[iblk err %d %d %d %d]",
 	st.iblk.s_oldblkid, st.iblk.s_badblkid,
 	st.iblk.s_baddata, st.iblk.s_dup)
-    st.Infof("total [send %d (%d resend) msgs %d acks RTT(%v)] [recv %d acks] %s",
-	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT, st.s_recvack, s_iblk)
+    st.Infof("total [send %d (%d resend) msgs %d acks RTT(%v)] [recv %d (%d unknown) acks] %s",
+	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT,
+	st.s_recvack, st.s_recvunkack, s_iblk)
 }
 
 type Connection struct {

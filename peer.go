@@ -307,6 +307,8 @@ type Stream struct {
     // stats
     s_sendmsg, s_resendmsg, s_sendack uint32
     s_recvack, s_recvunkack uint32
+    s_resendtrigger, s_getblock, s_getack uint32
+    s_selfreader, s_selfreaderclose uint32
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -359,6 +361,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 		    st.oblkTrigSend = false
 		    st.m.Unlock()
 		    st.q_work <- true
+		    st.s_resendtrigger++
 		}()
 	    }
 	    return
@@ -447,6 +450,7 @@ func (st *Stream)GetBlock(data []byte) {
     st.m.Unlock()
     if wakeup {
 	st.q_work <- true
+	st.s_getblock++
     }
 }
 
@@ -475,6 +479,7 @@ func (st *Stream)GetAck(blkid, ack uint32) {
     st.m.Unlock()
     if wakeup {
 	st.q_work <- true
+	st.s_getack++
     }
 }
 
@@ -553,6 +558,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		st.oblkAcked = time.Now()
 		st.m.Unlock()
 		st.q_work <- true
+		st.s_selfreader++
 		// check
 		if reading {
 		    drain = curr.idx
@@ -589,6 +595,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		st.lopen = false
 		st.m.Unlock()
 		st.q_work <- true
+		st.s_selfreaderclose++
 		return
 	    }
 	    // self side connection closed
@@ -721,9 +728,12 @@ func (st *Stream)Destroy() {
 	st.iblk.s_getblk,
 	st.iblk.s_oldblkid, st.iblk.s_badblkid,
 	st.iblk.s_baddata, st.iblk.s_dup)
-    st.Infof("total [send %d (%d resend) msgs %d acks RTT(%v)] [recv %d (%d unknown) acks] %s",
+    s_wakeup := fmt.Sprintf("[wakeup %d %d %d %d %d]",
+	st.s_resendmsg, st.s_getblock, st.s_getack,
+	st.s_selfreader, st.s_selfreaderclose)
+    st.Infof("total [send %d (%d resend) msgs %d acks RTT(%v)] [recv %d (%d unknown) acks] %s %s",
 	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT,
-	st.s_recvack, st.s_recvunkack, s_iblk)
+	st.s_recvack, st.s_recvunkack, s_iblk, s_wakeup)
 }
 
 type Connection struct {

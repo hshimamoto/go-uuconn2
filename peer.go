@@ -628,7 +628,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	// no acks ?
 	if time.Since(st.oblkAcked) > time.Minute {
 	    // TODO: check in case no send from myside...
-	    st.Infof("no acks from remote")
+	    st.Infof("no acks from remote: last 0x%x/0x%x", st.oblk.blkid, st.oblkack)
 	    // assume remote closed
 	    st.m.Lock()
 	    st.ropen = false

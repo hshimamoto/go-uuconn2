@@ -165,7 +165,7 @@ type DataBlock struct {
     //
     tag string
     // stats
-    s_oldblkid, s_badblkid, s_baddata, s_dup uint32
+    s_getblk, s_oldblkid, s_badblkid, s_baddata, s_dup uint32
 }
 
 func NewDataBlock(tag string) *DataBlock {
@@ -243,6 +243,7 @@ func (blk *DataBlock)GetBlock(data []byte) {
 	blk.s_dup++
 	return
     }
+    blk.s_getblk++
     if blk.data == nil {
 	blk.data = make([]byte, BlockBufferSize)
     }
@@ -710,7 +711,8 @@ func (st *Stream)Destroy() {
     close(st.q_acked)
     close(st.q_flush)
     // show stats
-    s_iblk := fmt.Sprintf("[iblk err %d %d %d %d]",
+    s_iblk := fmt.Sprintf("[iblk %d err %d %d %d %d]",
+	st.iblk.s_getblk,
 	st.iblk.s_oldblkid, st.iblk.s_badblkid,
 	st.iblk.s_baddata, st.iblk.s_dup)
     st.Infof("total [send %d (%d resend) msgs %d acks RTT(%v)] [recv %d (%d unknown) acks] %s",

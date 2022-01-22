@@ -1221,6 +1221,18 @@ func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
     }
 }
 
+func (p *Peer)UnknownStream(c *Connection, code string, data []byte) {
+    if c == nil || len(data) < 4 {
+	return
+    }
+    streamid := binary.LittleEndian.Uint32(data[0:4])
+    msg := []byte("sendSSSSDDDDXXXXBBBBXXXXXXXXXXXX")
+    copy(msg[0:4], []byte(code))
+    binary.LittleEndian.PutUint32(msg[12:], streamid)
+    binary.LittleEndian.PutUint32(msg[16:], 0xffffffff)
+    c.q_sendmsg <- msg
+}
+
 func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     p.s_probe++
     // TODO
@@ -1348,8 +1360,10 @@ func (p *Peer)UDP_handler_RemoteSend(s *LocalSocket, addr *net.UDPAddr, spid, dp
     //p.Infof("recv rsnd streamid:0x%x blkid:%d", streamid, blkid)
     p.s_rsnd++
     c, st := p.LookupConnectionAndRemoteStream(spid, data)
-    if c == nil || st == nil {
-	p.Infof("unknown stream")
+    if st == nil {
+	if c != nil {
+	    p.UnknownStream(c, "rrcv", data)
+	}
 	return
     }
     st.GetBlock(data[4:])
@@ -1364,8 +1378,10 @@ func (p *Peer)UDP_handler_RemoteRecv(s *LocalSocket, addr *net.UDPAddr, spid, dp
     //p.Infof("recv rrcv streamid:0x%x blkid:%d", streamid, blkid)
     p.s_rrcv++
     c, st := p.LookupConnectionAndLocalStream(spid, data)
-    if c == nil || st == nil {
-	p.Infof("unknown stream")
+    if st == nil {
+	if c != nil {
+	    p.UnknownStream(c, "rsnd", data)
+	}
 	return
     }
     st.GetBlock(data[4:])
@@ -1380,8 +1396,10 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
     //p.Infof("recv rsck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     p.s_rsck++
     c, st := p.LookupConnectionAndLocalStream(spid, data)
-    if c == nil || st == nil {
-	p.Infof("unknown stream")
+    if st == nil {
+	if c != nil {
+	    p.UnknownStream(c, "rsnd", data)
+	}
 	return
     }
     st.GetAck(blkid, ack)
@@ -1396,8 +1414,10 @@ func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid,
     //p.Infof("recv rrck streamid:0x%x %d 0x%x", st.streamid, blkid, ack)
     p.s_rrck++
     c, st := p.LookupConnectionAndRemoteStream(spid, data)
-    if c == nil || st == nil {
-	p.Infof("unknown stream")
+    if st == nil {
+	if c != nil {
+	    p.UnknownStream(c, "rrcv", data)
+	}
 	return
     }
     st.GetAck(blkid, ack)

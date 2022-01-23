@@ -500,6 +500,13 @@ func (st *Stream)CheckOutblockAck() {
     }
 }
 
+func (st *Stream)SetupMessages(data []byte) {
+    st.m.Lock()
+    defer st.m.Unlock()
+    st.oblk.SetupMessages(data)
+    st.oblkAcked = time.Now()
+}
+
 func (st *Stream)SelfReader(conn net.Conn) {
     var m sync.Mutex
     curr := NewBuffer()
@@ -555,10 +562,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    st.m.Unlock()
 	    if rest == 0 {
 		// create DataBlock
-		st.m.Lock()
-		st.oblk.SetupMessages(curr.data[drain:curr.idx])
-		st.oblkAcked = time.Now()
-		st.m.Unlock()
+		st.SetupMessages(curr.data[drain:curr.idx])
 		st.q_work <- true
 		st.s_selfreader++
 		// check

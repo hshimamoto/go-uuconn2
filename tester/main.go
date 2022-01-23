@@ -54,14 +54,16 @@ func dumpinfo(n int) {
 
 type TestServer struct {
     serv *session.Server
+    handler func(net.Conn)
 }
 
 func NewTestServer(addr string) *TestServer {
     ts := &TestServer{}
     serv, _ := session.NewServer(addr, func(conn net.Conn) {
-	ts.Handler(conn)
+	ts.handler(conn)
     })
     ts.serv = serv
+    ts.handler = ts.Handler
     return ts
 }
 
@@ -110,6 +112,45 @@ func (ts *TestServer)Test(addr string) {
     logrus.Infof("complete")
 }
 
+func HelloWorldHandler(conn net.Conn) {
+    buf := make([]byte, 256)
+    n, _ := conn.Read(buf)
+    logrus.Infof("Test Server recv %d bytes %s", n, string(buf[:n]))
+    if string(buf[:n]) == "HELLO" {
+	conn.Write([]byte("WORLD"))
+    }
+    time.Sleep(time.Second)
+    conn.Close()
+}
+
+func HelloWorldTest(addr string) {
+    conn, _ := session.Dial(addr)
+
+    // write HELLO
+    logrus.Infof("write HELLO to conn")
+    conn.Write([]byte("HELLO"))
+
+    // read WORLD
+    ticker := time.NewTicker(time.Second)
+    ch := make(chan bool)
+
+    go func() {
+	buf := make([]byte, 256)
+	n, _ := conn.Read(buf)
+	logrus.Infof("read %s from conn1", buf[:n])
+	ch <- true
+    }()
+
+    select {
+    case <-ch:
+    case <-ticker.C:
+	logrus.Infof("Timeout")
+    }
+
+    conn.Close()
+    ticker.Stop()
+}
+
 func Scenario() {
     logrus.Infof("start scenario")
     // local uuconn2 instance 1
@@ -155,17 +196,9 @@ func Scenario() {
     time.Sleep(time.Millisecond * 100)
 
     // start test server
-    testserv, _ := session.NewServer(":18889", func(conn net.Conn) {
-	buf := make([]byte, 256)
-	n, _ := conn.Read(buf)
-	logrus.Infof("Test Server recv %d bytes %s", n, string(buf[:n]))
-	if string(buf[:n]) == "HELLO" {
-	    conn.Write([]byte("WORLD"))
-	}
-	time.Sleep(time.Second)
-	conn.Close()
-    })
-    go testserv.Run()
+    ts_HelloWorld := NewTestServer(":18889")
+    ts_HelloWorld.handler = HelloWorldHandler
+    go ts_HelloWorld.Run()
 
     ts := NewTestServer(":28889")
     go ts.Run()
@@ -183,36 +216,7 @@ func Scenario() {
 
     dumpinfo(3)
 
-    // try to connect
-    conn1, _ := session.Dial("127.0.0.1:18888")
-
-    dumpinfo(2)
-
-    // try to send data in conn1
-    logrus.Infof("write HELLO to conn1")
-    conn1.Write([]byte("HELLO"))
-
-    dumpinfo(2)
-
-    // try to read data
-    ticker := time.NewTicker(time.Second)
-    ch := make(chan bool)
-
-    go func() {
-	buf := make([]byte, 256)
-	n, _ := conn1.Read(buf)
-	logrus.Infof("read %s from conn1", buf[:n])
-	ch <- true
-    }()
-
-    select {
-    case <-ch:
-    case <-ticker.C:
-	logrus.Infof("Timeout")
-    }
-
-    conn1.Close()
-    ticker.Stop()
+    HelloWorldTest("127.0.0.1:18888")
 
     // wait a bit
     time.Sleep(time.Millisecond * 100)

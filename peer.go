@@ -20,6 +20,12 @@ const BlockPartSize = 1280
 const BlockPartNumber = 32
 const BlockBufferSize = BlockPartSize * BlockPartNumber
 
+func Kick(q chan bool) {
+    if len(q) == 0 {
+	q <- true
+    }
+}
+
 func MessageMask(msg []byte) {
     l := len(msg)
     if l < 12 {
@@ -360,7 +366,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 		    st.m.Lock()
 		    st.oblkTrigSend = false
 		    st.m.Unlock()
-		    st.q_work <- true
+		    Kick(st.q_work)
 		    st.s_resendtrigger++
 		}()
 	    }
@@ -449,7 +455,7 @@ func (st *Stream)GetBlock(data []byte) {
     }
     st.m.Unlock()
     if wakeup {
-	st.q_work <- true
+	Kick(st.q_work)
 	st.s_getblock++
     }
 }
@@ -480,7 +486,7 @@ func (st *Stream)GetAck(blkid, ack uint32) {
     }
     st.m.Unlock()
     if wakeup {
-	st.q_work <- true
+	Kick(st.q_work)
 	st.s_getack++
     }
 }
@@ -496,7 +502,7 @@ func (st *Stream)CheckOutblockAck() {
     }
     st.m.Unlock()
     if acked {
-	st.q_acked <- true
+	Kick(st.q_acked)
     }
 }
 
@@ -534,9 +540,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    if n > 0 {
 		b.idx += n
 		m.Unlock()
-		if len(q_read) == 0 {
-		    q_read <- true
-		}
+		Kick(q_read)
 		continue
 	    }
 	    if e, ok := err.(net.Error); ok && e.Timeout() {
@@ -546,9 +550,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    m.Unlock()
 	    st.Infof("Read: %v", err)
 	    closed = true
-	    if len(q_read) == 0 {
-		q_read <- true
-	    }
+	    Kick(q_read)
 	    break
 	}
     }()
@@ -563,7 +565,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    if rest == 0 {
 		// create DataBlock
 		st.SetupMessages(curr.data[drain:curr.idx])
-		st.q_work <- true
+		Kick(st.q_work)
 		st.s_selfreader++
 		// check
 		if reading {
@@ -581,9 +583,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	}
 	m.Unlock()
 	if wakeup {
-	    if len(q_wait) == 0 {
-		q_wait <- true
-	    }
+	    Kick(q_wait)
 	}
 	if closed {
 	    st.m.Lock()
@@ -600,7 +600,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		st.m.Lock()
 		st.lopen = false
 		st.m.Unlock()
-		st.q_work <- true
+		Kick(st.q_work)
 		st.s_selfreaderclose++
 		return
 	    }
@@ -680,7 +680,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
 	}
 	st.m.Unlock()
 	if flush {
-	    st.q_flush <- true
+	    Kick(st.q_flush)
 	}
 	if sendack {
 	    st.s_sendack++
@@ -711,15 +711,9 @@ func (st *Stream)Stop() {
 }
 
 func (st *Stream)KickWorkers() {
-    if len(st.q_work) == 0 {
-	st.q_work <- true
-    }
-    if len(st.q_acked) == 0 {
-	st.q_acked <- true
-    }
-    if len(st.q_flush) == 0 {
-	st.q_flush <- true
-    }
+    Kick(st.q_work)
+    Kick(st.q_acked)
+    Kick(st.q_flush)
 }
 
 func (st *Stream)Destroy() {
@@ -1402,7 +1396,7 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
     // okay, remote was opened
     st.ropen = true
     p.Infof("OpenAck from 0x%x stream:0x%x", spid, streamid)
-    st.q_work <- true
+    Kick(st.q_work)
 }
 
 // Remote Send

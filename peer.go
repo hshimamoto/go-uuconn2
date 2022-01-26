@@ -961,6 +961,8 @@ type LocalServer struct {
     laddr, raddr string
     serv *session.Server
     running bool
+    streams int
+    m sync.Mutex
     // stats
     s_accept uint32
 }
@@ -995,7 +997,17 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     if ls.remote == nil {
 	return
     }
+
+    ls.m.Lock()
+    ls.streams++
     ls.s_accept++
+    ls.m.Unlock()
+    defer func() {
+	ls.m.Lock()
+	ls.streams--
+	ls.m.Unlock()
+    }()
+
     // prepare stream
     st := ls.remote.NewLocalStream()
     st.lopen = true
@@ -1598,6 +1610,25 @@ func (p *Peer)API_handler(conn net.Conn) {
 	p.m.Lock()
 	p.lservs = append(p.lservs, ls)
 	p.m.Unlock()
+    case "DEL":
+	// need local
+	if len(words) < 2 {
+	    conn.Write([]byte("Bad Request"))
+	    return
+	}
+	laddr := words[1]
+	var target *LocalServer = nil
+	p.m.Lock()
+	for _, ls := range p.lservs {
+	    if ls.laddr == laddr {
+		target = ls
+		break
+	    }
+	}
+	p.m.Unlock()
+	if target != nil {
+	    target.Stop()
+	}
     case "CHECKER":
 	if len(words) == 1 {
 	    return
@@ -1654,6 +1685,16 @@ func (p *Peer)Housekeeper_Sweeper() {
     for _, serv := range p.rservs {
 	serv.remote.SweepStreams()
     }
+    p.m.Unlock()
+    // sweep local servers
+    p.m.Lock()
+    lservs := []*LocalServer{}
+    for _, serv := range p.lservs {
+	if serv.running || serv.streams > 0 {
+	    lservs = append(lservs, serv)
+	}
+    }
+    p.lservs = lservs
     p.m.Unlock()
     // sweep remote servers
     p.m.Lock()

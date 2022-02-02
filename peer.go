@@ -738,8 +738,13 @@ func (st *Stream)Destroy() {
 	st.s_recvack, st.s_recvunkack, s_iblk, s_wakeup)
 }
 
+type RemotePeer struct {
+    addr string
+    lastUpdate time.Time
+}
+
 type Connection struct {
-    remotes []string
+    remotes []*RemotePeer
     peerid uint32
     hostname string
     lstreams []*Stream
@@ -763,7 +768,7 @@ type Connection struct {
 
 func NewConnection(peerid uint32) *Connection {
     c := &Connection{
-	remotes: []string{},
+	remotes: []*RemotePeer{},
 	peerid: peerid,
 	startTime: time.Now(),
 	updateTime: time.Now(),
@@ -779,10 +784,15 @@ func (c *Connection)String() string {
     stats := fmt.Sprintf("[send %d msgs %d bytes] [recv %d locals %d remotes]",
 	    c.s_sendmsg, c.s_sendbytes,
 	    c.s_lookuplocalstream, c.s_lookupremotestream)
+    remotes := []string{}
+    for _, r := range c.remotes {
+	s := fmt.Sprintf("%s[%v]", r.addr, time.Since(r.lastUpdate))
+	remotes = append(remotes, s)
+    }
     return fmt.Sprintf("0x%x %s [%v] local:%d remote:%d %v %s",
 	    c.peerid, c.hostname, time.Since(c.startTime),
 	    len(c.lstreams), len(c.rstreams),
-	    c.remotes, stats)
+	    remotes, stats)
 }
 
 func (c *Connection)Infof(f string, args ...interface{}) {
@@ -793,17 +803,21 @@ func (c *Connection)Infof(f string, args ...interface{}) {
 func (c *Connection)Update(addr string) {
     c.m.Lock()
     defer c.m.Unlock()
-    remotes := []string{}
-    for _, a := range c.remotes {
-	if a != addr {
-	    remotes = append(remotes, a)
+    remotes := []*RemotePeer{}
+    for _, r := range c.remotes {
+	if r.addr != addr {
+	    remotes = append(remotes, r)
 	}
     }
-    c.remotes = append(remotes, addr)
+    r := &RemotePeer{
+	addr: addr,
+	lastUpdate: time.Now(),
+    }
+    c.remotes = append(remotes, r)
     c.updateTime = time.Now()
 }
 
-func (c *Connection)Freshers() []string {
+func (c *Connection)Freshers() []*RemotePeer {
     c.m.Lock()
     defer c.m.Unlock()
     l := len(c.remotes)
@@ -933,7 +947,7 @@ func (c *Connection)Run(q chan UDPMessage) {
 	    c.s_sendmsg++
 	    c.s_sendbytes += uint64(len(sendmsg))
 	    r := c.Freshers()[0]
-	    addr, err := net.ResolveUDPAddr("udp", r)
+	    addr, err := net.ResolveUDPAddr("udp", r.addr)
 	    if err != nil {
 		continue
 	    }
@@ -1651,16 +1665,26 @@ func (p *Peer)API_handler(conn net.Conn) {
 }
 
 func (p *Peer)Housekeeper_Connection(c *Connection) {
-    remotes := c.Freshers()
+    // remove remotes?
+    c.m.Lock()
+    remotes := []*RemotePeer{}
+    for _, r := range c.remotes {
+	if time.Since(r.lastUpdate) < time.Minute {
+	    remotes = append(remotes, r)
+	}
+    }
+    c.remotes = remotes
+    c.m.Unlock()
     now := time.Now()
     if time.Since(c.updateTime) > 5 * time.Minute {
 	c.Stop()
 	// TODO remove it
 	return
     }
+    remotes = c.Freshers()
     if now.After(c.lastProbe.Add(time.Second * 10)) {
 	for _, r := range remotes {
-	    if addr, err := net.ResolveUDPAddr("udp", r); err == nil {
+	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
 		p.ProbeTo(addr, 0)
 	    }
 	}
@@ -1668,7 +1692,7 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
     }
     if now.After(c.lastInform.Add(time.Minute)) {
 	for _, r := range remotes {
-	    if addr, err := net.ResolveUDPAddr("udp", r); err == nil {
+	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
 		p.InformTo(addr, p.peerid)
 	    }
 	}

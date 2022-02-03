@@ -315,6 +315,7 @@ type Stream struct {
     s_recvack, s_recvunkack uint32
     s_resendtrigger, s_getblock, s_getack uint32
     s_selfreader, s_selfreaderclose uint32
+    s_selfread, s_selfwrite uint32
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -535,6 +536,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    m.Unlock()
 	    conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	    n, err := conn.Read(b.data[b.idx:])
+	    st.s_selfread++
 	    m.Lock()
 	    reading = false
 	    if n > 0 {
@@ -621,6 +623,7 @@ func (st *Stream)SelfWriter(conn net.Conn) {
 	st.m.Unlock()
 	if rest == 0xffffffff {
 	    st.FlushInblock(conn)
+	    st.s_selfwrite++
 	    st.m.Lock()
 	    st.iblk.NextBlock()
 	    st.m.Unlock()
@@ -739,6 +742,8 @@ func (st *Stream)Destroy() {
 }
 
 func (st *Stream)Stat() string {
+    s_rw := fmt.Sprintf("[read %d write %d]",
+	st.s_selfread, st.s_selfwrite)
     s_send := fmt.Sprintf("[send %d (%d resend) msgs %d acks RTT(%v)]",
 	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT)
     s_recv := fmt.Sprintf("[recv %d (%d unknown) acks]",
@@ -752,8 +757,8 @@ func (st *Stream)Stat() string {
     s_wakeup := fmt.Sprintf("[wakeup %d %d %d %d %d]",
 	st.s_resendmsg, st.s_getblock, st.s_getack,
 	st.s_selfreader, st.s_selfreaderclose)
-    return fmt.Sprintf("0x%x %s %s %s %s %s",
-	st.streamid, s_send, s_recv, s_oblk, s_iblk, s_wakeup)
+    return fmt.Sprintf("0x%x %s %s %s %s %s %s",
+	st.streamid, s_rw, s_send, s_recv, s_oblk, s_iblk, s_wakeup)
 }
 
 type RemotePeer struct {

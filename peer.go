@@ -738,6 +738,24 @@ func (st *Stream)Destroy() {
 	st.s_recvack, st.s_recvunkack, s_iblk, s_wakeup)
 }
 
+func (st *Stream)Stat() string {
+    s_send := fmt.Sprintf("[send %d (%d resend) msgs %d acks RTT(%v)]",
+	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT)
+    s_recv := fmt.Sprintf("[recv %d (%d unknown) acks]",
+	st.s_recvack, st.s_recvunkack)
+    s_oblk := fmt.Sprintf("[oblk %d 0x%x]",
+	st.oblk.blkid, st.oblkack)
+    s_iblk := fmt.Sprintf("[iblk %d err %d %d %d %d]",
+	st.iblk.s_getblk,
+	st.iblk.s_oldblkid, st.iblk.s_badblkid,
+	st.iblk.s_baddata, st.iblk.s_dup)
+    s_wakeup := fmt.Sprintf("[wakeup %d %d %d %d %d]",
+	st.s_resendmsg, st.s_getblock, st.s_getack,
+	st.s_selfreader, st.s_selfreaderclose)
+    return fmt.Sprintf("0x%x %s %s %s %s %s",
+	st.streamid, s_send, s_recv, s_oblk, s_iblk, s_wakeup)
+}
+
 type RemotePeer struct {
     addr string
     lastUpdate time.Time
@@ -1581,6 +1599,36 @@ func (p *Peer)API_handler(conn net.Conn) {
 	p.m.Unlock()
 	// stats
 	resp += fmt.Sprintf("stats %d udp %d ignore\n", p.s_udp, p.s_ignore)
+	conn.Write([]byte(resp))
+    case "SHOW":
+	// SHOW <connection>
+	if len(words) == 1 {
+	    return
+	}
+	c := p.LookupConnection(words[1])
+	if c == nil {
+	    return
+	}
+	head := c.String()
+	lss := []string{}
+	rss := []string{}
+	c.m.Lock()
+	for _, s := range c.lstreams {
+	    lss = append(lss, s.Stat())
+	}
+	for _, s := range c.rstreams {
+	    rss = append(rss, s.Stat())
+	}
+	c.m.Unlock()
+	ls := ""
+	if len(lss) > 0 {
+	    ls = fmt.Sprintf("local streams:\n%s\n", strings.Join(lss, "\n"))
+	}
+	rs := ""
+	if len(rss) > 0 {
+	    rs = fmt.Sprintf("remote streams:\n%s\n", strings.Join(rss, "\n"))
+	}
+	resp := fmt.Sprintf("%s\n%s%s", head, ls, rs)
 	conn.Write([]byte(resp))
     case "CONNECT":
 	// need target

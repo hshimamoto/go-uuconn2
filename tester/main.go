@@ -12,8 +12,39 @@ import (
     "github.com/hshimamoto/go-session"
 )
 
-func api(addr, cmd string) string {
-    conn, err := session.Dial(addr)
+type Peer struct {
+    addr string
+    cmd *exec.Cmd
+    peerid string
+    uaddr string
+}
+
+func NewPeer(addr string) (*Peer, error) {
+    cmd := exec.Command("./uuconn2", "peer", addr)
+    // start test process
+    err := cmd.Start()
+    if err != nil {
+	return nil, err
+    }
+    time.Sleep(time.Millisecond * 10)
+    os.Rename("uuconn2.log", "uuconn2-1.log")
+    p := &Peer{
+	addr: addr,
+	cmd: cmd,
+    }
+    return p, nil
+}
+
+func (p *Peer)Stop() {
+    if p.cmd.Process != nil {
+	logrus.Infof("SIGINT to %s", p.peerid)
+	p.cmd.Process.Signal(os.Interrupt)
+    }
+    p.cmd.Wait()
+}
+
+func (p *Peer)Do(cmd string) string {
+    conn, err := session.Dial(p.addr)
     if err != nil {
 	logrus.Infof("Dial %v", err)
 	return ""
@@ -22,10 +53,16 @@ func api(addr, cmd string) string {
     conn.Write([]byte(cmd))
     buf := make([]byte, 4096)
     n, _ := conn.Read(buf)
-    logrus.Infof("Command: %s", cmd)
     resp := string(buf[:n])
+    logrus.Infof("Command: %s", cmd)
     logrus.Infof("Resp:\n%s", resp)
     return resp
+}
+
+func (p *Peer)Info() {
+    info := p.Do("INFO")
+    p.peerid = strings.Split(strings.Split(info, "\n")[0], " ")[1]
+    p.uaddr = get_addr(info)
 }
 
 func get_addr(info string) string {
@@ -43,11 +80,12 @@ func get_addr(info string) string {
     return ""
 }
 
-func dumpinfo(n int) {
+func dumpinfo(peers []*Peer, n int) {
     for i := 0; i < n; i++ {
 	logrus.Infof("dumpinfo %d/%d", i+1, n)
-	api("localhost:8888", "INFO") // show inst1 INFO
-	api("localhost:8889", "INFO") // show inst2 INFO
+	for _, p := range peers {
+	    p.Do("INFO")
+	}
 	time.Sleep(time.Second)
     }
 }
@@ -154,44 +192,36 @@ func HelloWorldTest(addr string) {
 func Scenario() {
     logrus.Infof("start scenario")
     // local uuconn2 instance 1
-    inst1 := exec.Command("./uuconn2", "peer", ":8888")
+    peer1, err := NewPeer("localhost:8888")
+    if err != nil {
+	logrus.Infof("NewPeer: %v", err)
+	return
+    }
     // local uuconn2 instance 2
-    inst2 := exec.Command("./uuconn2", "peer", ":8889")
-    // start inst1
-    err1 := inst1.Start()
-    if err1 != nil {
-	logrus.Infof("Start: %v", err1)
+    peer2, err := NewPeer("localhost:8889")
+    if err != nil {
+	logrus.Infof("NewPeer: %v", err)
+	// kill peer1
+	peer1.Stop()
+	return
     }
-    time.Sleep(time.Millisecond * 10)
-    os.Rename("uuconn2.log", "uuconn2-1.log")
-    time.Sleep(time.Millisecond * 10)
-    // start inst2
-    err2 := inst2.Start()
-    if err2 != nil {
-	logrus.Infof("Start: %v", err2)
-    }
-    time.Sleep(time.Millisecond * 10)
-    os.Rename("uuconn2.log", "uuconn2-2.log")
-    time.Sleep(time.Millisecond * 10)
 
     // wait a bit
     time.Sleep(time.Millisecond * 100)
 
     logrus.Infof("uuconn2 instances started")
 
-    // show inst1 INFO
-    info1 := api("localhost:8888", "INFO")
-    // show inst2 INFO
-    info2 := api("localhost:8889", "INFO")
+    peers := []*Peer{
+	peer1,
+	peer2,
+    }
 
-    // find inst1 addr
-    addr1 := get_addr(info1)
-    addr2 := get_addr(info2)
-    //peerid1 := strings.Split(strings.Split(info1, "\n")[0], " ")[1]
-    peerid2 := strings.Split(strings.Split(info2, "\n")[0], " ")[1]
+    for _, p := range peers {
+	p.Info()
+    }
 
-    logrus.Infof("addr1 = %s", addr1)
-    logrus.Infof("addr2 = %s", addr2)
+    logrus.Infof("addr1 = %s", peer1.uaddr)
+    logrus.Infof("addr2 = %s", peer2.uaddr)
 
     time.Sleep(time.Millisecond * 100)
 
@@ -204,17 +234,22 @@ func Scenario() {
     go ts.Run()
 
     // ask to connect
-    api("localhost:8888", "CONNECT " + addr2)
-    //api("localhost:8889", "CONNECT " + addr1)
+    peer1.Do("CONNECT " + peer2.uaddr)
 
-    dumpinfo(3)
+    time.Sleep(time.Millisecond * 100)
+
+    // show connection
+    peer1.Do("SHOW " + peer2.peerid)
+    peer2.Do("SHOW " + peer1.peerid)
+
+    dumpinfo(peers, 3)
 
     logrus.Infof("adding localserv")
 
-    api("localhost:8888", "ADD 127.0.0.1:18888 " + peerid2 + ":127.0.0.1:18889")
-    api("localhost:8888", "ADD 127.0.0.1:28888 " + peerid2 + ":127.0.0.1:28889")
+    peer1.Do("ADD 127.0.0.1:18888 " + peer2.peerid + ":127.0.0.1:18889")
+    peer1.Do("ADD 127.0.0.1:28888 " + peer2.peerid + ":127.0.0.1:28889")
 
-    dumpinfo(3)
+    dumpinfo(peers, 3)
 
     HelloWorldTest("127.0.0.1:18888")
 
@@ -228,25 +263,25 @@ func Scenario() {
 
     ts.Stop()
 
-    dumpinfo(5)
+    // show connection
+    peer1.Do("SHOW " + peer2.peerid)
+    peer2.Do("SHOW " + peer1.peerid)
+
+    dumpinfo(peers, 5)
+
+    // show connection
+    peer1.Do("SHOW " + peer2.peerid)
+    peer2.Do("SHOW " + peer1.peerid)
 
     logrus.Infof("ending test")
 
     // 5sec...
     time.Sleep(time.Second * 5)
 
-    if inst1.Process != nil {
-	logrus.Infof("SIGINT to inst1")
-	inst1.Process.Signal(os.Interrupt)
-    }
-    if inst2.Process != nil {
-	logrus.Infof("SIGINT to inst2")
-	inst2.Process.Signal(os.Interrupt)
+    for _, p := range peers {
+	p.Stop()
     }
 
-    // wait...
-    inst1.Wait()
-    inst2.Wait()
     logrus.Infof("end scenario")
 }
 

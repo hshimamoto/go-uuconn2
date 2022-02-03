@@ -969,7 +969,11 @@ func (c *Connection)Run(q chan UDPMessage) {
 	if len(sendmsg) > 12 {
 	    c.s_sendmsg++
 	    c.s_sendbytes += uint64(len(sendmsg))
-	    r := c.Freshers()[0]
+	    remotes := c.Freshers()
+	    if len(remotes) == 0 {
+		continue
+	    }
+	    r := remotes[0]
 	    addr, err := net.ResolveUDPAddr("udp", r.addr)
 	    if err != nil {
 		continue

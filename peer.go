@@ -336,6 +336,26 @@ func (st *Stream)Infof(f string, args ...interface{}) {
     logrus.Infof(header + f, args...)
 }
 
+func (st *Stream)StatString() string {
+    s_rw := fmt.Sprintf("[read %d write %d]",
+	st.s_selfread, st.s_selfwrite)
+    s_send := fmt.Sprintf("[send %d (%d resend) msgs %d acks RTT(%v)]",
+	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT)
+    s_recv := fmt.Sprintf("[recv %d (%d unknown) acks]",
+	st.s_recvack, st.s_recvunkack)
+    s_oblk := fmt.Sprintf("[oblk %d 0x%x]",
+	st.oblk.blkid, st.oblkack)
+    s_iblk := fmt.Sprintf("[iblk %d err %d %d %d %d]",
+	st.iblk.s_getblk,
+	st.iblk.s_oldblkid, st.iblk.s_badblkid,
+	st.iblk.s_baddata, st.iblk.s_dup)
+    s_wakeup := fmt.Sprintf("[wakeup %d %d %d %d %d]",
+	st.s_resendmsg, st.s_getblock, st.s_getack,
+	st.s_selfreader, st.s_selfreaderclose)
+    return fmt.Sprintf("%s %s %s %s %s %s",
+	s_rw, s_send, s_recv, s_oblk, s_iblk, s_wakeup)
+}
+
 func (st *Stream)FlushInblock(conn net.Conn) {
     //st.Infof("Flush %d bytes", st.iblk.sz)
     sz := 0
@@ -729,36 +749,13 @@ func (st *Stream)Destroy() {
     close(st.q_acked)
     close(st.q_flush)
     // show stats
-    s_iblk := fmt.Sprintf("[iblk %d err %d %d %d %d]",
-	st.iblk.s_getblk,
-	st.iblk.s_oldblkid, st.iblk.s_badblkid,
-	st.iblk.s_baddata, st.iblk.s_dup)
-    s_wakeup := fmt.Sprintf("[wakeup %d %d %d %d %d]",
-	st.s_resendmsg, st.s_getblock, st.s_getack,
-	st.s_selfreader, st.s_selfreaderclose)
-    st.Infof("total [send %d (%d resend) msgs %d acks RTT(%v)] [recv %d (%d unknown) acks] %s %s",
-	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT,
-	st.s_recvack, st.s_recvunkack, s_iblk, s_wakeup)
+    stat := st.StatString()
+    st.Infof("total %s", stat)
 }
 
 func (st *Stream)Stat() string {
-    s_rw := fmt.Sprintf("[read %d write %d]",
-	st.s_selfread, st.s_selfwrite)
-    s_send := fmt.Sprintf("[send %d (%d resend) msgs %d acks RTT(%v)]",
-	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT)
-    s_recv := fmt.Sprintf("[recv %d (%d unknown) acks]",
-	st.s_recvack, st.s_recvunkack)
-    s_oblk := fmt.Sprintf("[oblk %d 0x%x]",
-	st.oblk.blkid, st.oblkack)
-    s_iblk := fmt.Sprintf("[iblk %d err %d %d %d %d]",
-	st.iblk.s_getblk,
-	st.iblk.s_oldblkid, st.iblk.s_badblkid,
-	st.iblk.s_baddata, st.iblk.s_dup)
-    s_wakeup := fmt.Sprintf("[wakeup %d %d %d %d %d]",
-	st.s_resendmsg, st.s_getblock, st.s_getack,
-	st.s_selfreader, st.s_selfreaderclose)
-    return fmt.Sprintf("0x%x %s %s %s %s %s %s",
-	st.streamid, s_rw, s_send, s_recv, s_oblk, s_iblk, s_wakeup)
+    stat := st.StatString()
+    return fmt.Sprintf("0x%x %s", st.streamid, stat)
 }
 
 type RemotePeer struct {

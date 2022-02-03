@@ -959,6 +959,19 @@ func (c *Connection)SweepStreams() {
     }
 }
 
+func (c *Connection)CheckRemotePeers() {
+    // check remotes and remove
+    c.m.Lock()
+    remotes := []*RemotePeer{}
+    for _, r := range c.remotes {
+	if time.Since(r.lastUpdate) < time.Minute {
+	    remotes = append(remotes, r)
+	}
+    }
+    c.remotes = remotes
+    c.m.Unlock()
+}
+
 func (c *Connection)Run(q chan UDPMessage) {
     c.running = true
     for c.running {
@@ -1719,23 +1732,14 @@ func (p *Peer)API_handler(conn net.Conn) {
 }
 
 func (p *Peer)Housekeeper_Connection(c *Connection) {
-    // remove remotes?
-    c.m.Lock()
-    remotes := []*RemotePeer{}
-    for _, r := range c.remotes {
-	if time.Since(r.lastUpdate) < time.Minute {
-	    remotes = append(remotes, r)
-	}
-    }
-    c.remotes = remotes
-    c.m.Unlock()
+    c.CheckRemotePeers()
     now := time.Now()
     if time.Since(c.updateTime) > 5 * time.Minute {
 	c.Stop()
 	// TODO remove it
 	return
     }
-    remotes = c.Freshers()
+    remotes := c.Freshers()
     if now.After(c.lastProbe.Add(time.Second * 10)) {
 	for _, r := range remotes {
 	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {

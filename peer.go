@@ -292,7 +292,8 @@ type Stream struct {
     running bool
     // outgoing block
     oblk *DataBlock
-    oblkack uint32
+    oblkacks uint32 // number of acks in this block
+    oblkack uint32  // current ack bits
     oblkAcked time.Time
     oblkLastSend time.Time
     oblkResend bool
@@ -402,12 +403,14 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	    return
 	}
 	st.m.Lock()
-	st.s_bufszdown++
-	if st.oblkNextMaxSize > BlockBufferSize / 8 {
-	    st.oblkNextMaxSize -= st.oblkNextMaxSize / 8
-	}
-	if st.oblkNextMaxSize < BlockBufferSize / 8 {
-	    st.oblkNextMaxSize = BlockBufferSize / 8
+	if st.oblkacks > 1 {
+	    st.s_bufszdown++
+	    if st.oblkNextMaxSize > BlockBufferSize / 8 {
+		st.oblkNextMaxSize -= st.oblkNextMaxSize / 8
+	    }
+	    if st.oblkNextMaxSize < BlockBufferSize / 8 {
+		st.oblkNextMaxSize = BlockBufferSize / 8
+	    }
 	}
 	st.m.Unlock()
     } else {
@@ -505,6 +508,7 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	if st.oblkack == 0 {
 	    st.oblkRTT = (st.oblkRTT + time.Since(st.oblkRTTCheckTime)) / 2
 	}
+	st.oblkacks++
 	st.oblkack |= ack
 	wakeup = true
 	st.s_recvack++
@@ -533,6 +537,7 @@ func (st *Stream)CheckOutblockAck() {
     st.m.Lock()
     if st.oblkack == 0xffffffff {
 	st.oblk.NextBlock()
+	st.oblkacks = 0
 	st.oblkack = 0
 	st.oblkResend = false
 	acked = true

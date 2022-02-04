@@ -297,7 +297,7 @@ type Stream struct {
     oblkLastSend time.Time
     oblkResend bool
     oblkTrigSend bool
-    oblkParts int
+    oblkMaxSize, oblkNextMaxSize uint32
     oblkRTTCheckTime time.Time
     oblkRTT time.Duration
     // incoming block
@@ -345,8 +345,9 @@ func (st *Stream)StatString() string {
 	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT)
     s_recv := fmt.Sprintf("[recv %d (%d unknown) acks]",
 	st.s_recvack, st.s_recvunkack)
-    s_oblk := fmt.Sprintf("[oblk %d 0x%x 0x%x %d]",
-	st.oblk.blkid, st.oblk.rest, st.oblkack, st.oblkParts)
+    s_oblk := fmt.Sprintf("[oblk %d 0x%x 0x%x %d %d]",
+	st.oblk.blkid, st.oblk.rest, st.oblkack,
+	st.oblkMaxSize, st.oblkNextMaxSize)
     s_iblk := fmt.Sprintf("[iblk %d get %d err %d %d %d %d]",
 	st.iblk.blkid,
 	st.iblk.s_getblk,
@@ -399,14 +400,20 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	    return
 	}
 	st.m.Lock()
-	if st.oblkParts > BlockPartNumber / 8 {
-	    st.oblkParts--
+	if st.oblkNextMaxSize > BlockBufferSize / 8 {
+	    st.oblkNextMaxSize -= st.oblkNextMaxSize / 8
+	}
+	if st.oblkNextMaxSize < BlockBufferSize / 8 {
+	    st.oblkNextMaxSize = BlockBufferSize / 8
 	}
 	st.m.Unlock()
     } else {
 	st.m.Lock()
-	if st.oblkParts < BlockPartNumber {
-	    st.oblkParts++
+	if st.oblkNextMaxSize > BlockBufferSize / 8 {
+	    st.oblkNextMaxSize += st.oblkNextMaxSize / 8
+	}
+	if st.oblkNextMaxSize > BlockBufferSize {
+	    st.oblkNextMaxSize = BlockBufferSize
 	}
 	st.m.Unlock()
     }
@@ -426,8 +433,8 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
     if resend == false {
 	st.oblkRTTCheckTime = time.Now()
     }
-    cnt := 0
-    maxresend := st.oblkParts / 2
+    cnt := uint32(0)
+    maxresend := (st.oblkMaxSize / BlockPartSize) / 2
     if acked == 0 {
 	maxresend = 1
     }
@@ -550,7 +557,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
     go func() {
 	for st.running {
 	    m.Lock()
-	    rest := st.oblkParts * BlockPartSize - curr.idx
+	    rest := int(st.oblkMaxSize) - curr.idx
 	    if rest <= 0 {
 		m.Unlock()
 		<-q_wait // wait buffer
@@ -606,6 +613,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		    drain = 0
 		    st.m.Lock()
 		    st.s_bufswap++
+		    st.oblkMaxSize = st.oblkNextMaxSize
 		    st.m.Unlock()
 		}
 		wakeup = true
@@ -672,7 +680,8 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn)
     prevack := uint32(0)
     st.oblkAcked = time.Now()
     st.oblkLastSend = time.Now()
-    st.oblkParts = BlockPartNumber
+    st.oblkMaxSize = BlockBufferSize
+    st.oblkNextMaxSize = BlockBufferSize
     st.oblkRTT = 0
     st.running = true
     // start SelfReader

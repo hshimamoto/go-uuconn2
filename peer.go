@@ -599,8 +599,8 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		    prev = tmp
 		    curr.idx = 0
 		    drain = 0
-		    wakeup = true
 		}
+		wakeup = true
 	    }
 	}
 	m.Unlock()

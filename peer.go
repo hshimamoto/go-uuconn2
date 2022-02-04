@@ -316,6 +316,8 @@ type Stream struct {
     s_resendtrigger, s_getblock, s_getack uint32
     s_selfreader, s_selfreaderclose uint32
     s_selfread, s_selfwrite uint32
+    // misc
+    s_bufswap, s_curridx, s_drain uint32
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -343,8 +345,8 @@ func (st *Stream)StatString() string {
 	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT)
     s_recv := fmt.Sprintf("[recv %d (%d unknown) acks]",
 	st.s_recvack, st.s_recvunkack)
-    s_oblk := fmt.Sprintf("[oblk %d 0x%x]",
-	st.oblk.blkid, st.oblkack)
+    s_oblk := fmt.Sprintf("[oblk %d 0x%x %d]",
+	st.oblk.blkid, st.oblkack, st.oblkParts)
     s_iblk := fmt.Sprintf("[iblk %d err %d %d %d %d]",
 	st.iblk.s_getblk,
 	st.iblk.s_oldblkid, st.iblk.s_badblkid,
@@ -352,8 +354,10 @@ func (st *Stream)StatString() string {
     s_wakeup := fmt.Sprintf("[wakeup %d %d %d %d %d]",
 	st.s_resendmsg, st.s_getblock, st.s_getack,
 	st.s_selfreader, st.s_selfreaderclose)
-    return fmt.Sprintf("%s %s %s %s %s %s",
-	s_rw, s_send, s_recv, s_oblk, s_iblk, s_wakeup)
+    s_misc := fmt.Sprintf("[misc %d %d %d]",
+	st.s_bufswap, st.s_curridx, st.s_drain)
+    return fmt.Sprintf("%s %s %s %s %s %s %s",
+	s_rw, s_send, s_recv, s_oblk, s_iblk, s_wakeup, s_misc)
 }
 
 func (st *Stream)FlushInblock(conn net.Conn) {
@@ -599,10 +603,17 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		    prev = tmp
 		    curr.idx = 0
 		    drain = 0
+		    st.m.Lock()
+		    st.s_bufswap++
+		    st.m.Unlock()
 		}
 		wakeup = true
 	    }
 	}
+	st.m.Lock()
+	st.s_curridx = uint32(curr.idx)
+	st.s_drain = uint32(drain)
+	st.m.Unlock()
 	m.Unlock()
 	if wakeup {
 	    Kick(q_wait)

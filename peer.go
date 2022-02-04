@@ -345,9 +345,10 @@ func (st *Stream)StatString() string {
 	st.s_sendmsg, st.s_resendmsg, st.s_sendack, st.oblkRTT)
     s_recv := fmt.Sprintf("[recv %d (%d unknown) acks]",
 	st.s_recvack, st.s_recvunkack)
-    s_oblk := fmt.Sprintf("[oblk %d 0x%x %d]",
-	st.oblk.blkid, st.oblkack, st.oblkParts)
-    s_iblk := fmt.Sprintf("[iblk %d err %d %d %d %d]",
+    s_oblk := fmt.Sprintf("[oblk %d 0x%x 0x%x %d]",
+	st.oblk.blkid, st.oblk.rest, st.oblkack, st.oblkParts)
+    s_iblk := fmt.Sprintf("[iblk %d get %d err %d %d %d %d]",
+	st.iblk.blkid,
 	st.iblk.s_getblk,
 	st.iblk.s_oldblkid, st.iblk.s_badblkid,
 	st.iblk.s_baddata, st.iblk.s_dup)

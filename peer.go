@@ -318,6 +318,7 @@ type Stream struct {
     s_selfread, s_selfwrite uint32
     // misc
     s_bufswap, s_curridx, s_drain uint32
+    s_bufszdown, s_bufszup uint32
 }
 
 func NewStream(streamid uint32) *Stream {
@@ -356,8 +357,9 @@ func (st *Stream)StatString() string {
     s_wakeup := fmt.Sprintf("[wakeup %d %d %d %d %d]",
 	st.s_resendmsg, st.s_getblock, st.s_getack,
 	st.s_selfreader, st.s_selfreaderclose)
-    s_misc := fmt.Sprintf("[misc %d %d %d]",
-	st.s_bufswap, st.s_curridx, st.s_drain)
+    s_misc := fmt.Sprintf("[misc %d %d %d %d %d]",
+	st.s_bufswap, st.s_curridx, st.s_drain,
+	st.s_bufszdown, st.s_bufszup)
     return fmt.Sprintf("%s %s %s %s %s %s %s",
 	s_rw, s_send, s_recv, s_oblk, s_iblk, s_wakeup, s_misc)
 }
@@ -400,6 +402,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	    return
 	}
 	st.m.Lock()
+	st.s_bufszdown++
 	if st.oblkNextMaxSize > BlockBufferSize / 8 {
 	    st.oblkNextMaxSize -= st.oblkNextMaxSize / 8
 	}
@@ -409,6 +412,7 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	st.m.Unlock()
     } else {
 	st.m.Lock()
+	st.s_bufszup++
 	if st.oblkNextMaxSize > BlockBufferSize / 8 {
 	    st.oblkNextMaxSize += st.oblkNextMaxSize / 8
 	}

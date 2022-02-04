@@ -379,8 +379,12 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
     oblk := st.oblk
     acked := st.oblkack
     resend := st.oblkResend
+    rest := st.oblk.rest
     st.m.Unlock()
     if oblk == nil {
+	return
+    }
+    if rest == 0 {
 	return
     }
     if resend {

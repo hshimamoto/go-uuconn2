@@ -819,6 +819,7 @@ type Connection struct {
     lastProbe time.Time
     lastRecvProbe time.Time
     lastInform time.Time
+    lastShow time.Time
     sockidx int
     m sync.Mutex
     q_sendmsg chan []byte
@@ -843,6 +844,7 @@ func NewConnection(peerid uint32) *Connection {
 	updateTime: now,
 	lastRecvProbe: now,
 	stopTime: now,
+	lastShow: now,
 	q_sendmsg: make(chan []byte, 64),
 	q_broadcast: make(chan []byte, 32),
     }
@@ -1844,6 +1846,11 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
 	    }
 	}
 	c.lastInform = now
+    }
+    // finally show connection stats
+    if time.Since(c.lastShow) > 60 * time.Minute {
+	c.Infof("show %s", c.String())
+	c.lastShow = time.Now()
     }
 }
 

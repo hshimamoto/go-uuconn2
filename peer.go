@@ -698,11 +698,22 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg, q_broadcast chan []byte, c
     st.oblkNextMaxSize = BlockBufferSize
     st.oblkRTT = 0
     st.running = true
+    broadcast := false
+    bcastStart := time.Now()
     // start SelfReader
     go st.SelfReader(conn)
     go st.SelfWriter(conn)
     for st.running {
 	// no acks ?
+	if time.Since(st.oblkAcked) > 10 * time.Second {
+	    // start broadcast
+	    broadcast = true
+	    bcastStart = time.Now()
+	} else {
+	    if broadcast && time.Since(bcastStart) > time.Minute {
+		broadcast = false
+	    }
+	}
 	if time.Since(st.oblkAcked) > time.Minute {
 	    // TODO: check in case no send from myside...
 	    st.Infof("no acks from remote: last 0x%x/0x%x", st.oblk.blkid, st.oblkack)
@@ -742,7 +753,11 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg, q_broadcast chan []byte, c
 	}
 	if sendack {
 	    st.s_sendack++
-	    q_sendmsg <- ackmsg
+	    if broadcast {
+		q_broadcast <- ackmsg
+	    } else {
+		q_sendmsg <- ackmsg
+	    }
 	    lastAck = time.Now()
 	}
 	<-st.q_work

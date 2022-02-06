@@ -885,6 +885,7 @@ func (c *Connection)Freshers() []*RemotePeer {
 	}
     }
     if len(remotes) == 0 {
+	c.Infof("no freshers %s", c.String())
 	return c.remotes
     }
     return remotes

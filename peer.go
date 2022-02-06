@@ -806,6 +806,7 @@ type Connection struct {
     streamid uint32
     startTime time.Time
     lastProbe time.Time
+    lastRecvProbe time.Time
     lastInform time.Time
     sockidx int
     m sync.Mutex
@@ -821,12 +822,14 @@ type Connection struct {
 }
 
 func NewConnection(peerid uint32) *Connection {
+    now := time.Now()
     c := &Connection{
 	remotes: []*RemotePeer{},
 	peerid: peerid,
-	startTime: time.Now(),
-	updateTime: time.Now(),
-	stopTime: time.Now(),
+	startTime: now,
+	updateTime: now,
+	lastRecvProbe: now,
+	stopTime: now,
 	q_sendmsg: make(chan []byte, 64),
     }
     return c
@@ -1399,6 +1402,7 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
 	return
     }
     // recv probe response
+    remote.lastRecvProbe = time.Now()
     // data may contain global addr string
     hostname := strings.TrimSpace(strings.Split(string(data), "\n")[0])
     s.UpdateGlobal(hostname)
@@ -1767,6 +1771,15 @@ func (p *Peer)API_handler(conn net.Conn) {
 
 func (p *Peer)Housekeeper_Connection(c *Connection) {
     c.CheckRemotePeers()
+    if time.Since(c.lastRecvProbe) > 30 * time.Second {
+	c.Infof("missing probe response in %v", time.Since(c.lastRecvProbe))
+	// TODO need new route?
+	for _, r := range c.Freshers() {
+	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
+		p.ProbeTo(addr, 0)
+	    }
+	}
+    }
     now := time.Now()
     if time.Since(c.updateTime) > 5 * time.Minute {
 	c.Stop()

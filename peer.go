@@ -686,7 +686,7 @@ func (st *Stream)SelfWriter(conn net.Conn) {
     }
 }
 
-func (st *Stream)Run(code, ackcode string, q_sendmsg chan []byte, conn net.Conn) {
+func (st *Stream)Run(code, ackcode string, q_sendmsg, q_broadcast chan []byte, conn net.Conn) {
     ackmsg := []byte("rackSSSSDDDDXXXXBBBBAAAA")
     copy(ackmsg[0:4], []byte(ackcode))
     binary.LittleEndian.PutUint32(ackmsg[12:], st.streamid)
@@ -812,6 +812,7 @@ type Connection struct {
     sockidx int
     m sync.Mutex
     q_sendmsg chan []byte
+    q_broadcast chan []byte
     running bool
     //
     updateTime time.Time
@@ -819,6 +820,7 @@ type Connection struct {
     // stats
     s_sendmsg uint32
     s_sendbytes uint64
+    s_broadcast uint32
     s_lookuplocalstream, s_lookupremotestream uint32
 }
 
@@ -832,6 +834,7 @@ func NewConnection(peerid uint32) *Connection {
 	lastRecvProbe: now,
 	stopTime: now,
 	q_sendmsg: make(chan []byte, 64),
+	q_broadcast: make(chan []byte, 32),
     }
     return c
 }
@@ -839,8 +842,8 @@ func NewConnection(peerid uint32) *Connection {
 func (c *Connection)String() string {
     c.m.Lock()
     defer c.m.Unlock()
-    stats := fmt.Sprintf("[send %d msgs %d bytes] [recv %d locals %d remotes]",
-	    c.s_sendmsg, c.s_sendbytes,
+    stats := fmt.Sprintf("[send %d msgs %d bytes %d bcast] [recv %d locals %d remotes]",
+	    c.s_sendmsg, c.s_sendbytes, c.s_broadcast,
 	    c.s_lookuplocalstream, c.s_lookupremotestream)
     remotes := []string{}
     for _, r := range c.remotes {
@@ -1019,7 +1022,14 @@ func (c *Connection)CheckRemotePeers() {
 func (c *Connection)Run(q chan UDPMessage) {
     c.running = true
     for c.running {
-	sendmsg := <-c.q_sendmsg
+	broadcast := false
+	var sendmsg []byte = nil
+	select {
+	case sendmsg = <-c.q_sendmsg:
+	case sendmsg = <-c.q_broadcast:
+	    broadcast = true
+	    c.s_broadcast++
+	}
 	if len(sendmsg) > 12 {
 	    c.s_sendmsg++
 	    c.s_sendbytes += uint64(len(sendmsg))
@@ -1027,15 +1037,20 @@ func (c *Connection)Run(q chan UDPMessage) {
 	    if len(remotes) == 0 {
 		continue
 	    }
-	    r := remotes[len(remotes)-1]
-	    addr, err := net.ResolveUDPAddr("udp", r.addr)
-	    if err != nil {
-		continue
+	    for i := len(remotes) - 1; i >= 0; i-- {
+		r := remotes[i]
+		addr, err := net.ResolveUDPAddr("udp", r.addr)
+		if err != nil {
+		    continue
+		}
+		// update msg
+		// replace dest peerid
+		binary.LittleEndian.PutUint32(sendmsg[8:], c.peerid)
+		q <- UDPMessage{ msg:sendmsg, addr: addr }
+		if ! broadcast {
+		    break
+		}
 	    }
-	    // update msg
-	    // replace dest peerid
-	    binary.LittleEndian.PutUint32(sendmsg[8:], c.peerid)
-	    q <- UDPMessage{ msg:sendmsg, addr: addr }
 	}
     }
     c.Infof("stopped")
@@ -1120,7 +1135,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     }
 
     // forground runner
-    st.Run("rsnd", "rrck", ls.remote.q_sendmsg, lconn)
+    st.Run("rsnd", "rrck", ls.remote.q_sendmsg, ls.remote.q_broadcast, lconn)
     logrus.Infof("LocalServer: handler done")
 }
 
@@ -1182,7 +1197,7 @@ func (rs *RemoteServer)Run() {
     st := rs.stream
 
     // forground runner
-    st.Run("rrcv", "rsck", rs.remote.q_sendmsg, conn)
+    st.Run("rrcv", "rsck", rs.remote.q_sendmsg, rs.remote.q_broadcast, conn)
 
     // stop streams
     st.Stop()
@@ -1244,7 +1259,7 @@ func NewPeer(laddr string) (*Peer, error) {
     if hostname, err := os.Hostname(); err == nil {
 	p.hostname = hostname
     }
-    p.q_sendmsg = make(chan UDPMessage, 64)
+    p.q_sendmsg = make(chan UDPMessage, 128)
     return p, nil
 }
 

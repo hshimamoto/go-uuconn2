@@ -1593,6 +1593,8 @@ func (p *Peer)UDP_handler_RemoteSendAck(s *LocalSocket, addr *net.UDPAddr, spid,
 	return
     }
     st.GetAck(blkid, ack)
+    // update Remote
+    c.Update(addr.String())
 }
 
 // Remote Recv Ack
@@ -1611,6 +1613,8 @@ func (p *Peer)UDP_handler_RemoteRecvAck(s *LocalSocket, addr *net.UDPAddr, spid,
 	return
     }
     st.GetAck(blkid, ack)
+    // update Remote
+    c.Update(addr.String())
 }
 
 func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {

@@ -76,7 +76,7 @@ func (s *LocalSocket)Infof(f string, args ...interface{}) {
     logrus.Infof(header + f, args...)
 }
 
-func (s *LocalSocket)UpdateGlobal(global string) {
+func (s *LocalSocket)UpdateGlobal(global string) bool {
     updated := false
     old := ""
     s.m.Lock()
@@ -89,6 +89,7 @@ func (s *LocalSocket)UpdateGlobal(global string) {
     if updated {
 	s.Infof("update global [%s] to [%s]", old, global)
     }
+    return updated
 }
 
 func (s *LocalSocket)String() string {
@@ -1200,6 +1201,8 @@ type Peer struct {
     hostname string
     running bool
     lastCheck time.Time
+    // flag global addr changed
+    globalChanged bool
     q_sendmsg chan UDPMessage
     m sync.Mutex
     // stats
@@ -1405,7 +1408,9 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
     remote.lastRecvProbe = time.Now()
     // data may contain global addr string
     hostname := strings.TrimSpace(strings.Split(string(data), "\n")[0])
-    s.UpdateGlobal(hostname)
+    if s.UpdateGlobal(hostname) {
+	p.globalChanged = true
+    }
 }
 
 // Inform Message
@@ -1580,7 +1585,9 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
 	if len(msg) > 7 {
 	    w := strings.Split(string(msg), " ")
 	    // Probe addr
-	    s.UpdateGlobal(w[1])
+	    if s.UpdateGlobal(w[1]) {
+		p.globalChanged = true
+	    }
 	}
 	return
     }
@@ -1866,7 +1873,7 @@ func (p *Peer)Housekeeper() {
 	    p.Housekeeper_Connection(c)
 	}
 	// checker?
-	if time.Now().After(p.lastCheck.Add(time.Minute)) {
+	if p.globalChanged || time.Now().After(p.lastCheck.Add(time.Minute)) {
 	    p.m.Lock()
 	    checkers := p.checkers
 	    p.m.Unlock()
@@ -1876,6 +1883,7 @@ func (p *Peer)Housekeeper() {
 		}
 		p.lastCheck = time.Now()
 	    }
+	    p.globalChanged = false
 	}
 	// kick streams
 	p.m.Lock()

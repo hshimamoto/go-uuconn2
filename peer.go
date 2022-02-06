@@ -1366,8 +1366,9 @@ func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
     binary.LittleEndian.PutUint32(msg[4:], p.peerid)
     binary.LittleEndian.PutUint32(msg[8:], dstpid)
     p.m.Lock()
-    defer p.m.Unlock()
-    for _, sock := range p.lsocks {
+    socks := p.lsocks
+    p.m.Unlock()
+    for _, sock := range socks {
 	udpmsg := UDPMessage {
 	    addr: addr,
 	    msg: msg,
@@ -1394,8 +1395,9 @@ func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
     binary.LittleEndian.PutUint32(msg[4:], p.peerid)
     binary.LittleEndian.PutUint32(msg[8:], dstpid)
     p.m.Lock()
-    defer p.m.Unlock()
-    for _, sock := range p.lsocks {
+    socks := p.lsocks
+    p.m.Unlock()
+    for _, sock := range socks {
 	udpmsg := UDPMessage {
 	    addr: addr,
 	    msg: msg,
@@ -1829,6 +1831,14 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
 	c.Stop()
 	// TODO remove it
 	return
+    }
+    if p.globalChanged {
+	for _, r := range c.remotes {
+	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
+		p.InformTo(addr, p.peerid)
+		p.ProbeTo(addr, 0)
+	    }
+	}
     }
     remotes := c.Freshers()
     if now.After(c.lastProbe.Add(time.Second * 10)) {

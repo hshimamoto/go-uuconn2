@@ -342,6 +342,7 @@ func (st *Stream)Infof(f string, args ...interface{}) {
 }
 
 func (st *Stream)StatString() string {
+    s_live := fmt.Sprintf("[live %v]", time.Since(st.createdTime))
     s_rw := fmt.Sprintf("[read %d write %d]",
 	st.s_selfread, st.s_selfwrite)
     s_send := fmt.Sprintf("[send %d (%d resend) msgs %d acks RTT(%v)]",
@@ -362,8 +363,8 @@ func (st *Stream)StatString() string {
     s_misc := fmt.Sprintf("[misc %d %d %d %d %d]",
 	st.s_bufswap, st.s_curridx, st.s_drain,
 	st.s_bufszdown, st.s_bufszup)
-    return fmt.Sprintf("%s %s %s %s %s %s %s",
-	s_rw, s_send, s_recv, s_oblk, s_iblk, s_wakeup, s_misc)
+    return fmt.Sprintf("%s %s %s %s %s %s %s %s",
+	s_live, s_rw, s_send, s_recv, s_oblk, s_iblk, s_wakeup, s_misc)
 }
 
 func (st *Stream)FlushInblock(conn net.Conn) {

@@ -1408,7 +1408,7 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
 // |info|spid|dpid|hostname global...|
 func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
     p.s_inform++
-    remote := p.FindConnection(spid)
+    remote := p.LookupConnectionById(spid)
     if remote == nil {
 	// ignore
 	return

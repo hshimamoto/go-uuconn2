@@ -93,9 +93,13 @@ func (s *LocalSocket)UpdateGlobal(global string) bool {
 }
 
 func (s *LocalSocket)String() string {
-    return fmt.Sprintf("localsocket %v %s %d %d %d %d",
+    s_send := fmt.Sprintf("[send %d %d]",
+	s.s_send, s.s_senderr)
+    s_recv := fmt.Sprintf("[recv %d %d]",
+	s.s_recv, s.s_recverr)
+    return fmt.Sprintf("localsocket %v %s %s %s",
 	    s.sock.LocalAddr(), s.global,
-	    s.s_send, s.s_senderr, s.s_recv, s.s_recverr)
+	    s_send, s_recv)
 }
 
 func (s *LocalSocket)Sender() {

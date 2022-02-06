@@ -519,15 +519,9 @@ func (st *Stream)GetAck(blkid, ack uint32) {
 	st.s_recvack++
     } else if st.oblk.blkid == blkid + 1 {
 	// ack for prevous block
-	/*
-	st.Infof("prev ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
-		st.oblk.blkid, st.oblkack, blkid, ack)
-	*/
 	// counts but ignore
 	st.s_recvack++
     } else {
-	st.Infof("unknown ack curr 0x%x/0x%x ack blkid 0x%x/0x%x",
-		st.oblk.blkid, st.oblkack, blkid, ack)
 	st.s_recvunkack++
     }
     st.m.Unlock()

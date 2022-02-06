@@ -878,11 +878,16 @@ func (c *Connection)Update(addr string) {
 func (c *Connection)Freshers() []*RemotePeer {
     c.m.Lock()
     defer c.m.Unlock()
-    l := len(c.remotes)
-    if l < 3 {
+    remotes := []*RemotePeer{}
+    for _, r := range c.remotes {
+	if time.Since(r.lastUpdate) < 30 * time.Second {
+	    remotes = append(remotes, r)
+	}
+    }
+    if len(remotes) == 0 {
 	return c.remotes
     }
-    return c.remotes[l-3:]
+    return remotes
 }
 
 func (c *Connection)NewLocalStream() *Stream {
@@ -1021,7 +1026,7 @@ func (c *Connection)Run(q chan UDPMessage) {
 	    if len(remotes) == 0 {
 		continue
 	    }
-	    r := remotes[0]
+	    r := remotes[len(remotes)-1]
 	    addr, err := net.ResolveUDPAddr("udp", r.addr)
 	    if err != nil {
 		continue

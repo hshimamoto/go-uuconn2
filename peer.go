@@ -105,6 +105,9 @@ func (s *LocalSocket)String() string {
 func (s *LocalSocket)Sender() {
     for s.running {
 	msg := <-s.q_sendmsg
+	if s.retired {
+	    continue
+	}
 	if msg.addr != nil && len(msg.msg) >= 12 {
 	    // make copy
 	    sendmsg := make([]byte, len(msg.msg))
@@ -164,6 +167,10 @@ func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
 
 func (s *LocalSocket)Stop() {
     s.running = false
+}
+
+func (s *LocalSocket)Retire() {
+    s.Infof("Retire")
     s.retired = true
 }
 

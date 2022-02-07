@@ -1368,20 +1368,23 @@ func (p *Peer)LookupConnectionAndRemoteStream(peerid uint32, data []byte) (*Conn
     return c, c.LookupRemoteStream(streamid)
 }
 
-func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
-    msg := []byte(fmt.Sprintf("probSSSSDDDD%v", addr))
-    binary.LittleEndian.PutUint32(msg[4:], p.peerid)
-    binary.LittleEndian.PutUint32(msg[8:], dstpid)
+func (p *Peer)SendFromAll(udpmsg UDPMessage) {
     p.m.Lock()
     socks := p.lsocks
     p.m.Unlock()
     for _, sock := range socks {
-	udpmsg := UDPMessage {
-	    addr: addr,
-	    msg: msg,
-	}
 	sock.q_sendmsg <- udpmsg
     }
+}
+
+func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
+    msg := []byte(fmt.Sprintf("probSSSSDDDD%v", addr))
+    binary.LittleEndian.PutUint32(msg[4:], p.peerid)
+    binary.LittleEndian.PutUint32(msg[8:], dstpid)
+    p.SendFromAll(UDPMessage{
+	addr: addr,
+	msg: msg,
+    })
 }
 
 func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
@@ -1401,16 +1404,10 @@ func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
     msg := []byte(fmt.Sprintf("infoSSSSDDDD%s", strings.Join(addrs, " ")))
     binary.LittleEndian.PutUint32(msg[4:], p.peerid)
     binary.LittleEndian.PutUint32(msg[8:], dstpid)
-    p.m.Lock()
-    socks := p.lsocks
-    p.m.Unlock()
-    for _, sock := range socks {
-	udpmsg := UDPMessage {
-	    addr: addr,
-	    msg: msg,
-	}
-	sock.q_sendmsg <- udpmsg
-    }
+    p.SendFromAll(UDPMessage{
+	addr: addr,
+	msg: msg,
+    })
 }
 
 func (p *Peer)UnknownStream(c *Connection, code string, data []byte) {

@@ -51,6 +51,7 @@ type LocalSocket struct {
     global string
     running bool
     retired bool
+    sender_dead bool
     dead bool
     m sync.Mutex
     q_sendmsg chan UDPMessage
@@ -118,10 +119,10 @@ func (s *LocalSocket)Sender() {
 	    s.s_send++
 	}
     }
+    s.sender_dead = true
 }
 
 func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
-    defer func() { s.dead = true } ()
     s.running = true
     // start sender goroutine
     go s.Sender()
@@ -163,6 +164,11 @@ func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
     }
     // stop sender
     s.q_sendmsg <- UDPMessage{}
+    // wait sender has been dead
+    for ! s.sender_dead {
+	time.Sleep(time.Second)
+    }
+    s.dead = true
 }
 
 func (s *LocalSocket)Stop() {
@@ -1859,6 +1865,38 @@ func (p *Peer)Housekeeper_Sockets() {
 	}
     }
     p.m.Unlock()
+    // sweep
+    p.m.Lock()
+    socks := []*LocalSocket{}
+    for _, sock := range p.lsocks {
+	if sock.dead == false {
+	    socks = append(socks, sock)
+	}
+    }
+    p.lsocks = socks
+    p.m.Unlock()
+    /*
+    p.m.Lock()
+    // test to stop
+    if len(p.lsocks) > 2 {
+	if p.lsocks[0].s_recv > 10 && p.lsocks[2].s_recv > 10 {
+	    p.lsocks[0].Retire()
+	    p.lsocks[0].Stop()
+	}
+    }
+    p.m.Unlock()
+    p.m.Lock()
+    // test to stop
+    if len(p.lsocks) < 3 {
+	if p.lsocks[0].s_recv > 10 {
+	    sock := NewLocalSocket()
+	    if sock != nil {
+		p.lsocks = append(p.lsocks, sock)
+	    }
+	}
+    }
+    p.m.Unlock()
+    */
 }
 
 func (p *Peer)Housekeeper_Connection(c *Connection) {

@@ -223,7 +223,12 @@ func Scenario() {
     logrus.Infof("addr1 = %s", peer1.uaddr)
     logrus.Infof("addr2 = %s", peer2.uaddr)
 
-    time.Sleep(time.Millisecond * 100)
+    // set HOUSEKEEPER interval short
+    peer1.Do("CONFIG HOUSEKEEPER short")
+    peer2.Do("CONFIG HOUSEKEEPER short")
+
+    // wait
+    dumpinfo(peers, 5)
 
     // start test server
     ts_HelloWorld := NewTestServer(":18889")

@@ -1238,6 +1238,7 @@ type Peer struct {
     hostname string
     running bool
     lastCheck time.Time
+    d_housekeep time.Duration
     // flag global addr changed
     globalChanged bool
     q_sendmsg chan UDPMessage
@@ -1277,6 +1278,7 @@ func NewPeer(laddr string) (*Peer, error) {
 	p.hostname = hostname
     }
     p.q_sendmsg = make(chan UDPMessage, 128)
+    p.d_housekeep = 5 * time.Second
     return p, nil
 }
 
@@ -1661,6 +1663,23 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     }
 }
 
+func (p *Peer)API_handler_CONFIG(conn net.Conn, words []string) {
+    if len(words) == 0{
+	return
+    }
+    target := words[0]
+    ops := words[1:]
+    switch target {
+    case "HOUSEKEEPER":
+	if ops[0] == "short" {
+	    p.d_housekeep = time.Second
+	}
+	if ops[0] == "long" {
+	    p.d_housekeep = 5 * time.Second
+	}
+    }
+}
+
 func (p *Peer)API_handler(conn net.Conn) {
     defer conn.Close()
     buf := make([]byte, 256)
@@ -1822,6 +1841,8 @@ func (p *Peer)API_handler(conn net.Conn) {
 	    p.checkers = append(p.checkers, words[1])
 	}
 	p.m.Unlock()
+    case "CONFIG":
+	p.API_handler_CONFIG(conn, words[1:])
     }
 }
 
@@ -1972,7 +1993,7 @@ func (p *Peer)Housekeeper() {
 	// sweeper
 	p.Housekeeper_Sweeper()
 	p.s_housekeep++
-	time.Sleep(time.Second * 5)
+	time.Sleep(p.d_housekeep)
     }
 }
 

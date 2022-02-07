@@ -3,6 +3,7 @@
 package main
 import (
     "net"
+    "math/rand"
     "os"
     "os/exec"
     "strings"
@@ -189,6 +190,64 @@ func HelloWorldTest(addr string) {
     ticker.Stop()
 }
 
+func EchoBackHandler(conn net.Conn) {
+    defer conn.Close()
+    buf := make([]byte, 256)
+    logrus.Infof("Start Echo Back Server")
+    for {
+	n, _ := conn.Read(buf)
+	if n <= 0 {
+	    break
+	}
+	conn.Write(buf[:n])
+    }
+    logrus.Infof("Done Echo Back Server")
+}
+
+func EchoBackTest(addr string) {
+    conn, _ := session.Dial(addr)
+
+    buf0 := make([]byte, 256)
+    buf1 := make([]byte, 256)
+    bad := false
+
+    logrus.Infof("Echo Back Test Start")
+
+    start := time.Now()
+
+    for time.Since(start) < 10 * time.Second {
+	// make random data
+	for i := 0; i < 256; i++ {
+	    buf0[i] = byte(rand.Uint32())
+	}
+	rest := 0
+	for rest < 256 {
+	    n, _ := conn.Write(buf0[rest:])
+	    rest += n
+	}
+	rest = 0
+	for rest < 256 {
+	    n, _ := conn.Read(buf1[rest:])
+	    rest += n
+	}
+	// check
+	for i := 0; i < 256; i++ {
+	    if buf0[i] != buf1[i] {
+		bad = true
+	    }
+	}
+	time.Sleep(time.Millisecond)
+    }
+
+    conn.Close()
+
+    if bad {
+	logrus.Infof("Echo Back Test: bad result")
+    }
+
+    logrus.Infof("Echo Back Test Done")
+}
+
 func Scenario() {
     logrus.Infof("start scenario")
     // local uuconn2 instance 1
@@ -238,6 +297,10 @@ func Scenario() {
     ts := NewTestServer(":28889")
     go ts.Run()
 
+    ts_EchoBack := NewTestServer(":38889")
+    ts_EchoBack.handler = EchoBackHandler
+    go ts_EchoBack.Run()
+
     // ask to connect
     peer1.Do("CONNECT " + peer2.uaddr)
 
@@ -254,6 +317,8 @@ func Scenario() {
     peer1.Do("ADD 127.0.0.1:18888 " + peer2.peerid + ":127.0.0.1:18889")
     peer1.Do("ADD 127.0.0.1:28888 " + peer2.peerid + ":127.0.0.1:28889")
 
+    peer2.Do("ADD 127.0.0.1:38888 " + peer1.peerid + ":127.0.0.1:38889")
+
     dumpinfo(peers, 3)
 
     HelloWorldTest("127.0.0.1:18888")
@@ -267,6 +332,28 @@ func Scenario() {
     time.Sleep(time.Millisecond * 100)
 
     ts.Stop()
+
+    // show connection
+    peer1.Do("SHOW " + peer2.peerid)
+    peer2.Do("SHOW " + peer1.peerid)
+
+    dumpinfo(peers, 2)
+
+    // wait a bit
+    time.Sleep(time.Millisecond * 100)
+
+    // background SHOW
+    go func() {
+	start := time.Now()
+	for time.Since(start) < 10 * time.Second {
+	    // show connection
+	    peer1.Do("SHOW " + peer2.peerid)
+	    peer2.Do("SHOW " + peer1.peerid)
+	    time.Sleep(time.Second)
+	}
+    }()
+
+    EchoBackTest("localhost:38888")
 
     // show connection
     peer1.Do("SHOW " + peer2.peerid)
@@ -291,6 +378,7 @@ func Scenario() {
 }
 
 func main() {
+    rand.Seed(time.Now().Unix() + int64(os.Getpid()))
     Scenario()
     os.Exit(0)
 }

@@ -98,9 +98,15 @@ func (s *LocalSocket)String() string {
 	s.s_send, s.s_senderr)
     s_recv := fmt.Sprintf("[recv %d %d]",
 	s.s_recv, s.s_recverr)
-    return fmt.Sprintf("localsocket %v %s %s %s",
+    s_state := "running"
+    if s.dead {
+	s_state = "dead"
+    } else if s.retired {
+	s_state = "retired"
+    }
+    return fmt.Sprintf("localsocket %v %s %s %s %s",
 	    s.sock.LocalAddr(), s.global,
-	    s_send, s_recv)
+	    s_send, s_recv, s_state)
 }
 
 func (s *LocalSocket)Sender() {

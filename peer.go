@@ -947,12 +947,17 @@ func (c *Connection)LookupLocalStream(lid uint32) *Stream {
     return nil
 }
 
-func (c *Connection)NewRemoteStream(rid uint32) *Stream {
+func (c *Connection)NewRemoteStream(rid uint32) (*Stream, bool) {
     c.m.Lock()
+    defer c.m.Unlock()
+    for _, st := range c.rstreams {
+	if st.streamid == rid {
+	    return st, false
+	}
+    }
     st := NewStream(rid)
     c.rstreams = append(c.rstreams, st)
-    c.m.Unlock()
-    return st
+    return st, true
 }
 
 func (c *Connection)LookupRemoteStream(rid uint32) *Stream {
@@ -1154,7 +1159,7 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     msg := []byte("openSSSSDDDDXXXX" + ls.raddr)
     binary.LittleEndian.PutUint32(msg[12:], st.streamid)
     // try to send
-    ls.remote.q_sendmsg <- msg
+    ls.remote.q_broadcast <- msg
     // wait a 1sec right now
     <-st.q_work
     if st.ropen == false {
@@ -1221,7 +1226,7 @@ func (rs *RemoteServer)Run() {
     ack := []byte("oackSSSSDDDDXXXXRRRR")
     binary.LittleEndian.PutUint32(ack[12:], rs.stream.streamid)
     // use connection queue
-    rs.remote.q_sendmsg <- ack
+    rs.remote.q_broadcast <- ack
 
     st := rs.stream
 
@@ -1513,7 +1518,11 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     raddr := string(data[4:])
     p.Infof("Open from 0x%x stream:0x%x %s", spid, streamid, raddr)
     // New
-    st = c.NewRemoteStream(streamid)
+    st, created := c.NewRemoteStream(streamid)
+    if ! created {
+	// already created
+	return
+    }
     // New RemoteServer
     rs, err := NewRemoteServer("laddr", raddr, c, st)
     if err != nil {
@@ -1549,6 +1558,10 @@ func (p *Peer)UDP_handler_OpenAck(s *LocalSocket, addr *net.UDPAddr, spid, dpid 
     st := c.LookupLocalStream(streamid)
     if st == nil {
 	p.Infof("no local stream 0x%x", streamid)
+	return
+    }
+    if st.ropen {
+	// ignore already opened
 	return
     }
     // okay, remote was opened

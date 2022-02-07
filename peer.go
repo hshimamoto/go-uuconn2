@@ -1249,6 +1249,7 @@ type Peer struct {
     s_inform uint32
     s_open, s_openack uint32
     s_rsnd, s_rrcv, s_rsck, s_rrck uint32
+    s_housekeep uint32
 }
 
 func NewPeer(laddr string) (*Peer, error) {
@@ -1706,6 +1707,7 @@ func (p *Peer)API_handler(conn net.Conn) {
 	p.m.Unlock()
 	// stats
 	resp += fmt.Sprintf("stats %d udp %d ignore\n", p.s_udp, p.s_ignore)
+	resp += fmt.Sprintf("housekeep %d\n", p.s_housekeep)
 	conn.Write([]byte(resp))
     case "SHOW":
 	// SHOW <connection>
@@ -1819,6 +1821,17 @@ func (p *Peer)API_handler(conn net.Conn) {
     }
 }
 
+func (p *Peer)Housekeeper_Sockets() {
+    p.m.Lock()
+    for _, sock := range p.lsocks {
+	if sock.running == false && sock.dead == false {
+	    // start local socket
+	    go sock.Run(p.UDP_handler)
+	}
+    }
+    p.m.Unlock()
+}
+
 func (p *Peer)Housekeeper_Connection(c *Connection) {
     c.CheckRemotePeers()
     if time.Since(c.lastRecvProbe) > 30 * time.Second {
@@ -1868,6 +1881,27 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
     }
 }
 
+func (p *Peer)Housekeeper_Connections() {
+    // probe/inform connections
+    p.m.Lock()
+    conns := p.conns
+    p.m.Unlock()
+    for _, c := range conns {
+	p.Housekeeper_Connection(c)
+    }
+}
+
+func (p *Peer)Housekeeper_Kick() {
+    p.m.Lock()
+    for _, serv := range p.lservs {
+	serv.remote.KickStreams()
+    }
+    for _, serv := range p.rservs {
+	serv.remote.KickStreams()
+    }
+    p.m.Unlock()
+}
+
 func (p *Peer)Housekeeper_Sweeper() {
     // sweep streams
     p.m.Lock()
@@ -1913,21 +1947,9 @@ func (p *Peer)Housekeeper_Sweeper() {
 func (p *Peer)Housekeeper() {
     for p.running {
 	// check sockets
-	p.m.Lock()
-	for _, sock := range p.lsocks {
-	    if sock.running == false && sock.dead == false {
-		// start local socket
-		go sock.Run(p.UDP_handler)
-	    }
-	}
-	p.m.Unlock()
-	// probe/inform connections
-	p.m.Lock()
-	conns := p.conns
-	p.m.Unlock()
-	for _, c := range conns {
-	    p.Housekeeper_Connection(c)
-	}
+	p.Housekeeper_Sockets()
+	// check connections
+	p.Housekeeper_Connections()
 	// checker?
 	if p.globalChanged || time.Now().After(p.lastCheck.Add(time.Minute)) {
 	    p.m.Lock()
@@ -1942,16 +1964,10 @@ func (p *Peer)Housekeeper() {
 	    p.globalChanged = false
 	}
 	// kick streams
-	p.m.Lock()
-	for _, serv := range p.lservs {
-	    serv.remote.KickStreams()
-	}
-	for _, serv := range p.rservs {
-	    serv.remote.KickStreams()
-	}
-	p.m.Unlock()
+	p.Housekeeper_Kick()
 	// sweeper
 	p.Housekeeper_Sweeper()
+	p.s_housekeep++
 	time.Sleep(time.Second * 5)
     }
 }

@@ -1706,8 +1706,12 @@ func (p *Peer)API_handler(conn net.Conn) {
 	}
 	p.m.Unlock()
 	// stats
-	resp += fmt.Sprintf("stats %d udp %d ignore\n", p.s_udp, p.s_ignore)
-	resp += fmt.Sprintf("housekeep %d\n", p.s_housekeep)
+	s_recv := fmt.Sprintf("[recv %d udp %d ignore %d %d %d %d %d %d %d %d]",
+	    p.s_udp, p.s_ignore,
+	    p.s_probe, p.s_inform, p.s_open, p.s_openack,
+	    p.s_rsnd, p.s_rrcv, p.s_rsck, p.s_rrck)
+	s_hk := fmt.Sprintf("[housekeep %d]", p.s_housekeep)
+	resp += fmt.Sprintf("stats %s %s\n", s_recv, s_hk)
 	conn.Write([]byte(resp))
     case "SHOW":
 	// SHOW <connection>

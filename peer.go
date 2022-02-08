@@ -50,6 +50,7 @@ type LocalSocket struct {
     sock *net.UDPConn
     global string
     running bool
+    retiring bool
     retired bool
     sender_dead bool
     dead bool
@@ -103,6 +104,8 @@ func (s *LocalSocket)String() string {
 	s_state = "dead"
     } else if s.retired {
 	s_state = "retired"
+    } else if s.retiring {
+	s_state = "retiring"
     }
     return fmt.Sprintf("localsocket %v %s %s %s %s",
 	    s.sock.LocalAddr(), s.global,
@@ -182,8 +185,13 @@ func (s *LocalSocket)Stop() {
 }
 
 func (s *LocalSocket)Retire() {
-    s.Infof("Retire")
-    s.retired = true
+    if s.retiring {
+	s.retired = true
+	s.Infof("Retired")
+	return
+    }
+    s.Infof("Retiring")
+    s.retiring = true
 }
 
 type DataBlock struct {
@@ -1394,6 +1402,9 @@ func (p *Peer)SendFromAll(udpmsg UDPMessage) {
     socks := p.lsocks
     p.m.Unlock()
     for _, sock := range socks {
+	if sock.retiring {
+	    continue
+	}
 	sock.q_sendmsg <- udpmsg
     }
 }
@@ -2073,12 +2084,25 @@ func (p *Peer)Run() {
 	    // replace src peerid
 	    binary.LittleEndian.PutUint32(msg.msg[4:], p.peerid)
 	    p.m.Lock()
-	    if idx >= len(p.lsocks) {
-		idx = 0
+	    var sock *LocalSocket = nil
+	    l := len(p.lsocks)
+	    for i := 0; i < l; i++ {
+		s := p.lsocks[idx % l]
+		idx++
+		if idx >= l {
+		    idx = 0
+		}
+		if s.retiring {
+		    continue
+		}
+		sock = s
+		break
 	    }
-	    sock := p.lsocks[idx]
 	    p.m.Unlock()
-	    idx++
+	    if sock == nil {
+		p.Infof("no sockets are available")
+		continue
+	    }
 	    sock.q_sendmsg <- msg
 	}
     }

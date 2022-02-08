@@ -54,6 +54,7 @@ type LocalSocket struct {
     retired bool
     sender_dead bool
     dead bool
+    created time.Time
     m sync.Mutex
     q_sendmsg chan UDPMessage
     // stats
@@ -69,6 +70,7 @@ func NewLocalSocket() *LocalSocket {
     }
     s.sock = sock
     s.global = ""
+    s.created = time.Now()
     s.q_sendmsg = make(chan UDPMessage, 64)
     return s
 }
@@ -177,6 +179,7 @@ func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
     for ! s.sender_dead {
 	time.Sleep(time.Second)
     }
+    s.sock.Close()
     s.dead = true
 }
 
@@ -1267,6 +1270,8 @@ type Peer struct {
     hostname string
     running bool
     lastCheck time.Time
+    sockRetireTime time.Time
+    d_retire time.Duration
     d_housekeep time.Duration
     // flag global addr changed
     globalChanged bool
@@ -1308,6 +1313,8 @@ func NewPeer(laddr string) (*Peer, error) {
     }
     p.q_sendmsg = make(chan UDPMessage, 128)
     p.d_housekeep = 5 * time.Second
+    p.sockRetireTime = time.Now()
+    p.d_retire = 10 * time.Minute
     return p, nil
 }
 
@@ -1425,6 +1432,10 @@ func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
     addrs := []string{p.hostname}
     p.m.Lock()
     for _, sock := range p.lsocks {
+	if sock.retiring {
+	    // Don't inform retiring socket
+	    continue
+	}
 	if sock.global != "" {
 	    addrs = append(addrs, sock.global)
 	}
@@ -1906,28 +1917,45 @@ func (p *Peer)Housekeeper_Sockets() {
     }
     p.lsocks = socks
     p.m.Unlock()
-    /*
+    // check retired socket
     p.m.Lock()
-    // test to stop
-    if len(p.lsocks) > 2 {
-	if p.lsocks[0].s_recv > 10 && p.lsocks[2].s_recv > 10 {
-	    p.lsocks[0].Retire()
-	    p.lsocks[0].Stop()
+    for _, sock := range p.lsocks {
+	if sock.retired {
+	    sock.Stop()
 	}
     }
     p.m.Unlock()
+    // retire socket
     p.m.Lock()
-    // test to stop
-    if len(p.lsocks) < 3 {
-	if p.lsocks[0].s_recv > 10 {
-	    sock := NewLocalSocket()
-	    if sock != nil {
-		p.lsocks = append(p.lsocks, sock)
-	    }
+    for _, sock := range p.lsocks {
+	if sock.running && sock.retiring {
+	    sock.Retire()
 	}
     }
     p.m.Unlock()
-    */
+    if time.Since(p.sockRetireTime) < p.d_retire {
+	return
+    }
+    p.sockRetireTime = time.Now()
+    p.m.Lock()
+    // prepare 4th socket
+    if len(p.lsocks) < 4 {
+	p.m.Unlock()
+	sock := NewLocalSocket()
+	p.m.Lock()
+	if sock != nil {
+	    p.lsocks = append(p.lsocks, sock)
+	}
+    }
+    // retire oldest socket
+    var sock *LocalSocket = p.lsocks[0]
+    for _, s := range p.lsocks {
+	if s.created.Before(sock.created) {
+	    sock = s
+	}
+    }
+    sock.Retire()
+    p.m.Unlock()
 }
 
 func (p *Peer)Housekeeper_Connection(c *Connection) {

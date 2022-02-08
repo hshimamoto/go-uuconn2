@@ -1164,14 +1164,11 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     // prepare message
     msg := []byte("openSSSSDDDDXXXX" + ls.raddr)
     binary.LittleEndian.PutUint32(msg[12:], st.streamid)
-    // try to send
-    ls.remote.q_broadcast <- msg
-    // wait a 1sec right now
-    <-st.q_work
-    if st.ropen == false {
-	st.lopen = false
-	logrus.Infof("stream not opened")
-	return
+    for st.ropen == false {
+	// try to send
+	ls.remote.q_broadcast <- msg
+	// wait
+	<-st.q_work
     }
 
     // forground runner
@@ -1527,6 +1524,10 @@ func (p *Peer)UDP_handler_Open(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     st, created := c.NewRemoteStream(streamid)
     if ! created {
 	// already created
+	// sendback oack
+	ack := []byte("oackSSSSDDDDXXXXRRRR")
+	binary.LittleEndian.PutUint32(ack[12:], streamid)
+	c.q_broadcast <- ack
 	return
     }
     // New RemoteServer

@@ -50,6 +50,7 @@ type LocalSocket struct {
     sock *net.UDPConn
     global string
     running bool
+    working bool
     retiring bool
     retired bool
     sender_dead bool
@@ -195,6 +196,13 @@ func (s *LocalSocket)Retire() {
     }
     s.Infof("Retiring")
     s.retiring = true
+}
+
+func (s *LocalSocket)IsReady() bool {
+    if s.retiring {
+	return false
+    }
+    return s.working
 }
 
 type DataBlock struct {
@@ -1487,6 +1495,7 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
 	return
     }
     // recv probe response
+    s.working = true
     remote.lastRecvProbe = time.Now()
     // data may contain global addr string
     hostname := strings.TrimSpace(strings.Split(string(data), "\n")[0])
@@ -2120,7 +2129,7 @@ func (p *Peer)Run() {
 		if idx >= l {
 		    idx = 0
 		}
-		if s.retiring {
+		if ! s.IsReady() {
 		    continue
 		}
 		sock = s

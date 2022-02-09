@@ -1020,15 +1020,19 @@ func (c *Connection)SweepStreams() {
     streams := []*Stream{}
     for _, st := range c.lstreams {
 	del := false
+	stop := false
 	st.m.Lock()
 	if st.sweep {
 	    del = true
 	} else if st.running == false {
 	    st.sweep = true
 	} else if st.ropen == false && st.lopen == false {
-	    st.Stop()
+	    stop = true
 	}
 	st.m.Unlock()
+	if stop {
+	    st.Stop()
+	}
 	if del {
 	    sweeped = append(sweeped, st)
 	} else {
@@ -1042,15 +1046,19 @@ func (c *Connection)SweepStreams() {
     streams = []*Stream{}
     for _, st := range c.rstreams {
 	del := false
+	stop := false
 	st.m.Lock()
 	if st.sweep {
 	    del = true
 	} else if st.running == false {
 	    st.sweep = true
 	} else if st.ropen == false && st.lopen == false {
-	    st.Stop()
+	    stop = true
 	}
 	st.m.Unlock()
+	if stop {
+	    st.Stop()
+	}
 	if del {
 	    sweeped = append(sweeped, st)
 	} else {

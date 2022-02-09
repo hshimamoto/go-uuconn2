@@ -1465,6 +1465,17 @@ func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
     })
 }
 
+func (p *Peer)ProbeToChecker() {
+    p.m.Lock()
+    checkers := p.checkers
+    p.m.Unlock()
+    for _, ch := range checkers {
+	if addr, err := net.ResolveUDPAddr("udp", ch); err == nil {
+	    p.ProbeTo(addr, 0)
+	}
+    }
+}
+
 func (p *Peer)UnknownStream(c *Connection, code string, data []byte) {
     if c == nil || len(data) < 4 {
 	return
@@ -1980,6 +1991,9 @@ func (p *Peer)Housekeeper_Sockets() {
     }
     sock.Retire()
     p.m.Unlock()
+    // Force to check
+    p.ProbeToChecker()
+    p.lastCheck = time.Now()
 }
 
 func (p *Peer)Housekeeper_Connection(c *Connection) {
@@ -2102,15 +2116,8 @@ func (p *Peer)Housekeeper() {
 	p.Housekeeper_Connections()
 	// checker?
 	if p.globalChanged || time.Since(p.lastCheck) > time.Minute {
-	    p.m.Lock()
-	    checkers := p.checkers
-	    p.m.Unlock()
-	    for _, ch := range checkers {
-		if addr, err := net.ResolveUDPAddr("udp", ch); err == nil {
-		    p.ProbeTo(addr, 0)
-		}
-		p.lastCheck = time.Now()
-	    }
+	    p.ProbeToChecker()
+	    p.lastCheck = time.Now()
 	    p.globalChanged = false
 	}
 	// kick streams

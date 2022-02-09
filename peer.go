@@ -98,6 +98,7 @@ func (s *LocalSocket)UpdateGlobal(global string) bool {
 }
 
 func (s *LocalSocket)String() string {
+    s_qlen := fmt.Sprintf("[qlen %d]", len(s.q_sendmsg))
     s_send := fmt.Sprintf("[send %d %d]",
 	s.s_send, s.s_senderr)
     s_recv := fmt.Sprintf("[recv %d %d]",
@@ -110,9 +111,9 @@ func (s *LocalSocket)String() string {
     } else if s.retiring {
 	s_state = "retiring"
     }
-    return fmt.Sprintf("localsocket %v %s %s %s %s",
+    return fmt.Sprintf("localsocket %v %s %s %s %s %s",
 	    s.sock.LocalAddr(), s.global,
-	    s_send, s_recv, s_state)
+	    s_qlen, s_send, s_recv, s_state)
 }
 
 func (s *LocalSocket)Sender() {

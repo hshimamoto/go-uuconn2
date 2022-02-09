@@ -1278,6 +1278,7 @@ type Peer struct {
     hostname string
     running bool
     lastCheck time.Time
+    lastShow time.Time
     sockRetireTime time.Time
     d_retire time.Duration
     d_housekeep time.Duration
@@ -1319,6 +1320,8 @@ func NewPeer(laddr string) (*Peer, error) {
     if hostname, err := os.Hostname(); err == nil {
 	p.hostname = hostname
     }
+    p.lastCheck = time.Now()
+    p.lastShow = time.Now()
     p.q_sendmsg = make(chan UDPMessage, 128)
     p.d_housekeep = 5 * time.Second
     p.sockRetireTime = time.Now()
@@ -1907,6 +1910,15 @@ func (p *Peer)API_handler(conn net.Conn) {
     }
 }
 
+func (p *Peer)ShowSocketsStats() {
+    p.m.Lock()
+    socks := p.lsocks
+    p.m.Unlock()
+    for _, sock := range socks {
+	p.Infof("%s", sock.String())
+    }
+}
+
 func (p *Peer)Housekeeper_Sockets() {
     p.m.Lock()
     for _, sock := range p.lsocks {
@@ -1971,6 +1983,8 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
     c.CheckRemotePeers()
     if time.Since(c.lastRecvProbe) > 30 * time.Second {
 	c.Infof("missing probe response in %v", time.Since(c.lastRecvProbe))
+	// show socket stats here
+	p.ShowSocketsStats()
 	// TODO need new route?
 	for _, r := range c.Freshers() {
 	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
@@ -2083,6 +2097,10 @@ func (p *Peer)Housekeeper() {
     for p.running {
 	// check sockets
 	p.Housekeeper_Sockets()
+	if time.Since(p.lastShow) > 60 * time.Minute {
+	    p.ShowSocketsStats()
+	    p.lastShow = time.Now()
+	}
 	// check connections
 	p.Housekeeper_Connections()
 	// checker?

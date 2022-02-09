@@ -1985,12 +1985,6 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
 	c.Infof("missing probe response in %v", time.Since(c.lastRecvProbe))
 	// show socket stats here
 	p.ShowSocketsStats()
-	// TODO need new route?
-	for _, r := range c.Freshers() {
-	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
-		p.ProbeTo(addr, 0)
-	    }
-	}
     }
     now := time.Now()
     if time.Since(c.updateTime) > 5 * time.Minute {
@@ -2104,7 +2098,7 @@ func (p *Peer)Housekeeper() {
 	// check connections
 	p.Housekeeper_Connections()
 	// checker?
-	if p.globalChanged || time.Now().After(p.lastCheck.Add(time.Minute)) {
+	if p.globalChanged || time.Since(p.lastCheck) > time.Minute {
 	    p.m.Lock()
 	    checkers := p.checkers
 	    p.m.Unlock()

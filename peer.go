@@ -954,8 +954,8 @@ func (c *Connection)NewLocalStream() *Stream {
     streamid := c.streamid
     c.streamid++
     c.m.Unlock()
-    c.m.Lock()
     st := NewStream(streamid)
+    c.m.Lock()
     c.lstreams = append(c.lstreams, st)
     c.m.Unlock()
     return st

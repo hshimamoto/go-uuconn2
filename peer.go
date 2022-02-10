@@ -894,18 +894,23 @@ func NewConnection(peerid uint32) *Connection {
     return c
 }
 
+func (c *Connection)StringRemotes() string {
+    remotes := []string{}
+    for _, r := range c.remotes {
+	s := fmt.Sprintf("%s[%v]", r.addr, time.Since(r.lastUpdate))
+	remotes = append(remotes, s)
+    }
+    return fmt.Sprintf("%v", remotes)
+}
+
 func (c *Connection)String() string {
     c.m.Lock()
     defer c.m.Unlock()
     stats := fmt.Sprintf("[send %d msgs %d bytes %d bcast] [recv %d locals %d remotes]",
 	    c.s_sendmsg, c.s_sendbytes, c.s_broadcast,
 	    c.s_lookuplocalstream, c.s_lookupremotestream)
-    remotes := []string{}
-    for _, r := range c.remotes {
-	s := fmt.Sprintf("%s[%v]", r.addr, time.Since(r.lastUpdate))
-	remotes = append(remotes, s)
-    }
-    return fmt.Sprintf("0x%x %s [%v] local:%d remote:%d %v %s",
+    remotes := c.StringRemotes()
+    return fmt.Sprintf("0x%x %s [%v] local:%d remote:%d %s %s",
 	    c.peerid, c.hostname, time.Since(c.startTime),
 	    len(c.lstreams), len(c.rstreams),
 	    remotes, stats)
@@ -943,7 +948,7 @@ func (c *Connection)Freshers() []*RemotePeer {
 	}
     }
     if len(remotes) == 0 {
-	c.Infof("no freshers %s", c.String())
+	c.Infof("no freshers %s", c.StringRemotes())
 	return c.remotes
     }
     return remotes

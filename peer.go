@@ -1461,7 +1461,7 @@ func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
 	}
     }
     p.m.Unlock()
-    if len(addrs) == 0 {
+    if len(addrs) == 1 {
 	return
     }
     msg := []byte(fmt.Sprintf("infoSSSSDDDD%s", strings.Join(addrs, " ")))

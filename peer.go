@@ -1334,7 +1334,7 @@ func NewPeer(laddr string) (*Peer, error) {
     p.q_sendmsg = make(chan UDPMessage, 128)
     p.d_housekeep = 5 * time.Second
     p.sockRetireTime = time.Now()
-    p.d_retire = 10 * time.Minute
+    p.d_retire = 60 * time.Minute
     return p, nil
 }
 

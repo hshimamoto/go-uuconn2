@@ -1928,10 +1928,11 @@ func (p *Peer)API_handler(conn net.Conn) {
 	if ! hit {
 	    p.Infof("new checker: %s", words[1])
 	    p.checkers = append(p.checkers, words[1])
-	    // Force to check
-	    p.lastCheck = time.Now().Add(-time.Minute)
 	}
 	p.m.Unlock()
+	if ! hit {
+	    p.ProbeToChecker()
+	}
     case "CONFIG":
 	p.API_handler_CONFIG(conn, words[1:])
     }

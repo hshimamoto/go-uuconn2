@@ -846,13 +846,71 @@ func (st *Stream)Stat() string {
     return fmt.Sprintf("0x%x %s", st.streamid, stat)
 }
 
-type RemotePeer struct {
+type RemoteAddr struct {
     addr string
     lastUpdate time.Time
 }
 
+type RemotePeer struct {
+    remotes []*RemoteAddr
+    peerid uint32
+}
+
+func (p *RemotePeer)Infof(f string, args ...interface{}) {
+    header := fmt.Sprintf("remotepeer:0x%x ", p.peerid)
+    logrus.Infof(header + f, args...)
+}
+
+func (p *RemotePeer)StringRemotes() string {
+    remotes := []string{}
+    for _, r := range p.remotes {
+	s := fmt.Sprintf("%s[%v]", r.addr, time.Since(r.lastUpdate))
+	remotes = append(remotes, s)
+    }
+    return fmt.Sprintf("%v", remotes)
+}
+
+func (p *RemotePeer)Update(addr string) {
+    remotes := []*RemoteAddr{}
+    for _, r := range p.remotes {
+	if r.addr != addr {
+	    remotes = append(remotes, r)
+	}
+    }
+    r := &RemoteAddr{
+	addr: addr,
+	lastUpdate: time.Now(),
+    }
+    p.remotes = append(remotes, r)
+}
+
+func (p *RemotePeer)Freshers() []*RemoteAddr {
+    remotes := []*RemoteAddr{}
+    for _, r := range p.remotes {
+	if time.Since(r.lastUpdate) < 30 * time.Second {
+	    remotes = append(remotes, r)
+	}
+    }
+    if len(remotes) == 0 {
+	p.Infof("no freshers %s", p.StringRemotes())
+	return p.remotes
+    }
+    return remotes
+}
+
+func (p *RemotePeer)CheckRemoteAddrs() {
+    // check remotes and remove
+    remotes := []*RemoteAddr{}
+    for _, r := range p.remotes {
+	if time.Since(r.lastUpdate) < time.Minute {
+	    remotes = append(remotes, r)
+	}
+    }
+    p.remotes = remotes
+}
+
 type Connection struct {
-    remotes []*RemotePeer
+    remote *RemotePeer
     peerid uint32
     hostname string
     lstreams []*Stream
@@ -881,7 +939,7 @@ type Connection struct {
 func NewConnection(peerid uint32) *Connection {
     now := time.Now()
     c := &Connection{
-	remotes: []*RemotePeer{},
+	remote: &RemotePeer{ remotes: []*RemoteAddr{}, peerid: peerid },
 	peerid: peerid,
 	startTime: now,
 	updateTime: now,
@@ -895,12 +953,7 @@ func NewConnection(peerid uint32) *Connection {
 }
 
 func (c *Connection)StringRemotes() string {
-    remotes := []string{}
-    for _, r := range c.remotes {
-	s := fmt.Sprintf("%s[%v]", r.addr, time.Since(r.lastUpdate))
-	remotes = append(remotes, s)
-    }
-    return fmt.Sprintf("%v", remotes)
+    return c.remote.StringRemotes()
 }
 
 func (c *Connection)String() string {
@@ -924,34 +977,14 @@ func (c *Connection)Infof(f string, args ...interface{}) {
 func (c *Connection)Update(addr string) {
     c.m.Lock()
     defer c.m.Unlock()
-    remotes := []*RemotePeer{}
-    for _, r := range c.remotes {
-	if r.addr != addr {
-	    remotes = append(remotes, r)
-	}
-    }
-    r := &RemotePeer{
-	addr: addr,
-	lastUpdate: time.Now(),
-    }
-    c.remotes = append(remotes, r)
+    c.remote.Update(addr)
     c.updateTime = time.Now()
 }
 
-func (c *Connection)Freshers() []*RemotePeer {
+func (c *Connection)Freshers() []*RemoteAddr {
     c.m.Lock()
     defer c.m.Unlock()
-    remotes := []*RemotePeer{}
-    for _, r := range c.remotes {
-	if time.Since(r.lastUpdate) < 30 * time.Second {
-	    remotes = append(remotes, r)
-	}
-    }
-    if len(remotes) == 0 {
-	c.Infof("no freshers %s", c.StringRemotes())
-	return c.remotes
-    }
-    return remotes
+    return c.remote.Freshers()
 }
 
 func (c *Connection)NewLocalStream() *Stream {
@@ -1079,16 +1112,10 @@ func (c *Connection)SweepStreams() {
     }
 }
 
-func (c *Connection)CheckRemotePeers() {
+func (c *Connection)CheckRemotePeer() {
     // check remotes and remove
     c.m.Lock()
-    remotes := []*RemotePeer{}
-    for _, r := range c.remotes {
-	if time.Since(r.lastUpdate) < time.Minute {
-	    remotes = append(remotes, r)
-	}
-    }
-    c.remotes = remotes
+    c.remote.CheckRemoteAddrs()
     c.m.Unlock()
 }
 
@@ -2034,7 +2061,7 @@ func (p *Peer)Housekeeper_Sockets() {
 }
 
 func (p *Peer)Housekeeper_Connection(c *Connection) {
-    c.CheckRemotePeers()
+    c.CheckRemotePeer()
     if time.Since(c.lastRecvProbe) > 30 * time.Second {
 	c.Infof("missing probe response in %v", time.Since(c.lastRecvProbe))
 	// show socket stats here
@@ -2047,7 +2074,7 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
 	return
     }
     if p.globalChanged {
-	for _, r := range c.remotes {
+	for _, r := range c.remote.remotes {
 	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
 		p.InformTo(addr, p.peerid)
 		p.ProbeTo(addr, 0)

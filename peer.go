@@ -1291,6 +1291,7 @@ type Peer struct {
     peerid uint32
     hostname string
     running bool
+    password string
     lastCheck time.Time
     lastShow time.Time
     sockRetireTime time.Time
@@ -1308,6 +1309,7 @@ type Peer struct {
     s_open, s_openack uint32
     s_rsnd, s_rrcv, s_rsck, s_rrck uint32
     s_housekeep uint32
+    s_badpass uint32
 }
 
 func NewPeer(laddr string) (*Peer, error) {
@@ -1442,7 +1444,7 @@ func (p *Peer)SendFromAll(udpmsg UDPMessage) {
 }
 
 func (p *Peer)ProbeTo(addr *net.UDPAddr, dstpid uint32) {
-    msg := []byte(fmt.Sprintf("probSSSSDDDD%v", addr))
+    msg := []byte(fmt.Sprintf("probSSSSDDDD%v %v", addr, p.password))
     binary.LittleEndian.PutUint32(msg[4:], p.peerid)
     binary.LittleEndian.PutUint32(msg[8:], dstpid)
     p.SendFromAll(UDPMessage{
@@ -1508,6 +1510,22 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
 	p.Infof("self communication")
 	// WILL BE IGNORED
     }
+    // data may contain global addr string and password
+    words := strings.Split(string(data), " ")
+    if len(words) > 1 {
+	// check password
+	password := strings.TrimSpace(words[1])
+	if p.password != password {
+	    // bad password
+	    // ignore
+	    p.s_badpass++
+	    return
+	}
+    }
+    globaladdr := ""
+    if len(words) > 0 {
+	globaladdr = strings.TrimSpace(words[0])
+    }
     // lookup spid?
     remote := p.FindConnection(spid)
     if remote != nil {
@@ -1525,9 +1543,7 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
     // recv probe response
     s.working = true
     remote.lastRecvProbe = time.Now()
-    // data may contain global addr string
-    hostname := strings.TrimSpace(strings.Split(string(data), "\n")[0])
-    if s.UpdateGlobal(hostname) {
+    if globaladdr != "" && s.UpdateGlobal(globaladdr) {
 	p.globalChanged = true
     }
 }
@@ -1766,6 +1782,12 @@ func (p *Peer)API_handler_CONFIG(conn net.Conn, words []string) {
 	if ops[0] == "long" {
 	    p.d_housekeep = 5 * time.Second
 	}
+    case "PASSWORD":
+	password := ""
+	if len(ops) > 0 {
+	    password = ops[0]
+	}
+	p.password = password
     }
 }
 
@@ -1819,7 +1841,8 @@ func (p *Peer)API_handler(conn net.Conn) {
 	    p.s_probe, p.s_inform, p.s_open, p.s_openack,
 	    p.s_rsnd, p.s_rrcv, p.s_rsck, p.s_rrck)
 	s_hk := fmt.Sprintf("[housekeep %d]", p.s_housekeep)
-	resp += fmt.Sprintf("stats %s %s\n", s_recv, s_hk)
+	s_misc := fmt.Sprintf("[misc %d]", p.s_badpass)
+	resp += fmt.Sprintf("stats %s %s %s\n", s_recv, s_hk, s_misc)
 	conn.Write([]byte(resp))
     case "SHOW":
 	// SHOW <connection>

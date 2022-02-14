@@ -301,6 +301,18 @@ func Scenario() {
     ts_EchoBack.handler = EchoBackHandler
     go ts_EchoBack.Run()
 
+    // set password
+    peer1.Do("CONFIG PASSWORD tester")
+
+    // ask to connect will be fail
+    peer1.Do("CONNECT " + peer2.uaddr)
+
+    // wait
+    dumpinfo(peers, 3)
+
+    // set password
+    peer2.Do("CONFIG PASSWORD tester")
+
     // ask to connect
     peer1.Do("CONNECT " + peer2.uaddr)
 

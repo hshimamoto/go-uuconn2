@@ -159,7 +159,7 @@ func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
 	msg := buf[:n]
 	if msg[0] == 'P' {
 	    // v1 "Probe" ?
-	    if string(msg[0:6]) == "Probe " {
+	    if len(msg) >= 5 && string(msg[0:5]) == "Probe" {
 		cb(s, addr, msg)
 		continue
 	    }
@@ -1760,7 +1760,12 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     //logrus.Infof("recv %d bytes from %v on %v", len(msg), addr, s.sock.LocalAddr())
     if msg[0] == 'P' {
 	// Probe? reuse v1 protocol
-	if len(msg) > 7 {
+	if string(msg) == "Probe" {
+	    msg := []byte(fmt.Sprintf("Probe %v", addr))
+	    s.sock.WriteToUDP(msg, addr)
+	    s.sock.WriteToUDP(msg, addr)
+	    s.sock.WriteToUDP(msg, addr)
+	} else if len(msg) > 7 {
 	    w := strings.Split(string(msg), " ")
 	    // Probe addr
 	    if s.UpdateGlobal(w[1]) {

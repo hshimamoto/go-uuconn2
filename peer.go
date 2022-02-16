@@ -870,6 +870,10 @@ func (p *RemotePeer)StringRemotes() string {
     return fmt.Sprintf("%v", remotes)
 }
 
+func (p *RemotePeer)String() string {
+    return fmt.Sprintf("remotepeer:0x%x %s", p.peerid, p.StringRemotes())
+}
+
 func (p *RemotePeer)Update(addr string) {
     remotes := []*RemoteAddr{}
     for _, r := range p.remotes {
@@ -1312,6 +1316,7 @@ type Peer struct {
     lsocks []*LocalSocket
     checkers []string
     conns []*Connection
+    peers []*RemotePeer
     lservs []*LocalServer
     rservs []*RemoteServer
     serv *session.Server
@@ -1333,6 +1338,7 @@ type Peer struct {
     s_ignore uint32
     s_probe uint32
     s_inform uint32
+    s_peer uint32
     s_open, s_openack uint32
     s_rsnd, s_rrcv, s_rsck, s_rrck uint32
     s_housekeep uint32
@@ -1518,6 +1524,34 @@ func (p *Peer)ProbeToChecker() {
     }
 }
 
+func (p *Peer)SendPeerInfo() {
+    // PeerInfo Message
+    // |peer|spid|dpid|peerid|hostname global...|
+    p.m.Lock()
+    conns := p.conns
+    p.m.Unlock()
+    for _, dest := range conns {
+	for _, conn := range conns {
+	    if dest == conn {
+		continue
+	    }
+	    // setup message
+	    peerid := conn.peerid
+	    addrs := []string{conn.hostname}
+	    for _, addr := range conn.remote.remotes {
+		addrs = append(addrs, addr.addr)
+	    }
+	    if len(addrs) == 1 {
+		// something wrong
+		continue
+	    }
+	    msg := []byte(fmt.Sprintf("peerSSSSDDDDPPPP%s", strings.Join(addrs, " ")))
+	    binary.LittleEndian.PutUint32(msg[12:], peerid)
+	    dest.q_sendmsg <- msg
+	}
+    }
+}
+
 func (p *Peer)UnknownStream(c *Connection, code string, data []byte) {
     if c == nil || len(data) < 4 {
 	return
@@ -1595,6 +1629,39 @@ func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid u
     remotes = remotes[1:]
     for _, r := range remotes {
 	remote.Update(r)
+    }
+}
+
+// Peer Message
+// |peer|spid|dpid|peerid|hostname global...|
+func (p *Peer)UDP_handler_Peer(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    p.s_peer++
+    remote := p.LookupConnectionById(spid)
+    if remote == nil {
+	// ignore
+	return
+    }
+    peerid := binary.LittleEndian.Uint32(data[0:4])
+    data = data[4:]
+    var targetpeer *RemotePeer = nil
+    p.m.Lock()
+    for _, peer := range p.peers {
+	if peer.peerid == peerid {
+	    targetpeer = peer
+	    break
+	}
+    }
+    if targetpeer == nil {
+	targetpeer = &RemotePeer{ peerid: peerid }
+	p.peers = append(p.peers, targetpeer)
+    }
+    p.m.Unlock()
+    addrs := strings.Split(string(data), " ")
+    if len(addrs) <= 1 {
+	return
+    }
+    for _, addr := range addrs[1:] {
+	targetpeer.Update(addr)
     }
 }
 
@@ -1789,6 +1856,7 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     switch string(code) {
     case "prob": p.UDP_handler_Probe(s, addr, spid, dpid, data)
     case "info": p.UDP_handler_Inform(s, addr, spid, dpid, data)
+    case "peer": p.UDP_handler_Peer(s, addr, spid, dpid, data)
     case "open": p.UDP_handler_Open(s, addr, spid, dpid, data)
     case "oack": p.UDP_handler_OpenAck(s, addr, spid, dpid, data)
     case "rsnd": p.UDP_handler_RemoteSend(s, addr, spid, dpid, data)
@@ -1853,6 +1921,13 @@ func (p *Peer)API_handler(conn net.Conn) {
 	    resp += fmt.Sprintf("%s\n", c.String())
 	}
 	p.m.Unlock()
+	// peers
+	resp += "peers:\n"
+	p.m.Lock()
+	for _, peer := range p.peers {
+	    resp += fmt.Sprintf("%s\n", peer.String())
+	}
+	p.m.Unlock()
 	// local servers
 	resp += "local:\n"
 	p.m.Lock()
@@ -1868,9 +1943,9 @@ func (p *Peer)API_handler(conn net.Conn) {
 	}
 	p.m.Unlock()
 	// stats
-	s_recv := fmt.Sprintf("[recv %d udp %d ignore %d %d %d %d %d %d %d %d]",
+	s_recv := fmt.Sprintf("[recv %d udp %d ignore %d %d %d %d %d %d %d %d %d]",
 	    p.s_udp, p.s_ignore,
-	    p.s_probe, p.s_inform, p.s_open, p.s_openack,
+	    p.s_probe, p.s_inform, p.s_peer, p.s_open, p.s_openack,
 	    p.s_rsnd, p.s_rrcv, p.s_rsck, p.s_rrck)
 	s_hk := fmt.Sprintf("[housekeep %d]", p.s_housekeep)
 	s_misc := fmt.Sprintf("[misc %d]", p.s_badpass)
@@ -2189,6 +2264,8 @@ func (p *Peer)Housekeeper() {
 	    p.lastCheck = time.Now()
 	    p.globalChanged = false
 	}
+	// peer info exchange
+	p.SendPeerInfo()
 	// kick streams
 	p.Housekeeper_Kick()
 	// sweeper

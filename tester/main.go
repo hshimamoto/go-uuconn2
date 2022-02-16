@@ -264,6 +264,14 @@ func Scenario() {
 	peer1.Stop()
 	return
     }
+    peer3, err := NewPeer("localhost:8890")
+    if err != nil {
+	logrus.Infof("NewPeer: %v", err)
+	// kill peer1 and peer2
+	peer1.Stop()
+	peer2.Stop()
+	return
+    }
 
     // wait a bit
     time.Sleep(time.Millisecond * 100)
@@ -273,6 +281,7 @@ func Scenario() {
     peers := []*Peer{
 	peer1,
 	peer2,
+	peer3,
     }
 
     for _, p := range peers {
@@ -281,10 +290,12 @@ func Scenario() {
 
     logrus.Infof("addr1 = %s", peer1.uaddr)
     logrus.Infof("addr2 = %s", peer2.uaddr)
+    logrus.Infof("addr3 = %s", peer3.uaddr)
 
     // set HOUSEKEEPER interval short
     peer1.Do("CONFIG HOUSEKEEPER short")
     peer2.Do("CONFIG HOUSEKEEPER short")
+    peer3.Do("CONFIG HOUSEKEEPER short")
 
     // wait
     dumpinfo(peers, 5)
@@ -312,9 +323,11 @@ func Scenario() {
 
     // set password
     peer2.Do("CONFIG PASSWORD tester")
+    peer3.Do("CONFIG PASSWORD tester")
 
     // ask to connect
     peer1.Do("CONNECT " + peer2.uaddr)
+    peer1.Do("CONNECT " + peer3.uaddr)
 
     time.Sleep(time.Millisecond * 100)
 

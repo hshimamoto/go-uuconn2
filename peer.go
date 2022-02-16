@@ -915,7 +915,6 @@ func (p *RemotePeer)CheckRemoteAddrs() {
 
 type Connection struct {
     remote *RemotePeer
-    peerid uint32
     hostname string
     lstreams []*Stream
     rstreams []*Stream
@@ -944,7 +943,6 @@ func NewConnection(peerid uint32) *Connection {
     now := time.Now()
     c := &Connection{
 	remote: &RemotePeer{ remotes: []*RemoteAddr{}, peerid: peerid },
-	peerid: peerid,
 	startTime: now,
 	updateTime: now,
 	lastRecvProbe: now,
@@ -968,13 +966,13 @@ func (c *Connection)String() string {
 	    c.s_lookuplocalstream, c.s_lookupremotestream)
     remotes := c.StringRemotes()
     return fmt.Sprintf("0x%x %s [%v] local:%d remote:%d %s %s",
-	    c.peerid, c.hostname, time.Since(c.startTime),
+	    c.remote.peerid, c.hostname, time.Since(c.startTime),
 	    len(c.lstreams), len(c.rstreams),
 	    remotes, stats)
 }
 
 func (c *Connection)Infof(f string, args ...interface{}) {
-    header := fmt.Sprintf("connection:0x%x ", c.peerid)
+    header := fmt.Sprintf("connection:0x%x ", c.remote.peerid)
     logrus.Infof(header + f, args...)
 }
 
@@ -1149,7 +1147,7 @@ func (c *Connection)Run(q chan UDPMessage) {
 		}
 		// update msg
 		// replace dest peerid
-		binary.LittleEndian.PutUint32(sendmsg[8:], c.peerid)
+		binary.LittleEndian.PutUint32(sendmsg[8:], c.remote.peerid)
 		q <- UDPMessage{ msg:sendmsg, addr: addr }
 		if ! broadcast {
 		    break
@@ -1200,7 +1198,7 @@ func NewLocalServer(laddr, raddr string, remote *Connection) (*LocalServer, erro
 func (ls *LocalServer)String() string {
     peerid := uint32(0)
     if ls.remote != nil {
-	peerid = ls.remote.peerid
+	peerid = ls.remote.remote.peerid
     }
     stats := fmt.Sprintf("%d", ls.s_accept)
     return fmt.Sprintf("localserver %s %s 0x%x %s", ls.laddr, ls.raddr, peerid, stats)
@@ -1272,7 +1270,7 @@ func NewRemoteServer(laddr, raddr string, remote *Connection, stream *Stream) (*
 func (rs *RemoteServer)String() string {
     peerid := uint32(0)
     if rs.remote != nil {
-	peerid = rs.remote.peerid
+	peerid = rs.remote.remote.peerid
     }
     return fmt.Sprintf("remoteserver %s %s 0x%x", rs.laddr, rs.raddr, peerid)
 }
@@ -1387,7 +1385,7 @@ func (p *Peer)FindConnection(peerid uint32) *Connection {
     p.m.Lock()
     defer p.m.Unlock()
     for _, c := range p.conns {
-	if c.peerid == peerid {
+	if c.remote.peerid == peerid {
 	    return c
 	}
     }
@@ -1402,7 +1400,7 @@ func (p *Peer)LookupConnectionById(peerid uint32) *Connection {
     p.m.Lock()
     defer p.m.Unlock()
     for _, c := range p.conns {
-	if c.peerid == peerid {
+	if c.remote.peerid == peerid {
 	    return c
 	}
     }
@@ -1536,7 +1534,7 @@ func (p *Peer)SendPeerInfo() {
 		continue
 	    }
 	    // setup message
-	    peerid := conn.peerid
+	    peerid := conn.remote.peerid
 	    addrs := []string{conn.hostname}
 	    for _, addr := range conn.remote.remotes {
 		addrs = append(addrs, addr.addr)

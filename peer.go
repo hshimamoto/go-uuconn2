@@ -1641,6 +1641,18 @@ func (p *Peer)UDP_handler_Peer(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     }
     peerid := binary.LittleEndian.Uint32(data[0:4])
     data = data[4:]
+    addrs := strings.Split(string(data), " ")
+    if len(addrs) <= 1 {
+	return
+    }
+    // connection peer?
+    c := p.LookupConnectionById(peerid)
+    if c != nil {
+	for _, addr := range addrs[1:] {
+	    c.remote.Update(addr)
+	}
+	return
+    }
     var targetpeer *RemotePeer = nil
     p.m.Lock()
     for _, peer := range p.peers {
@@ -1654,10 +1666,6 @@ func (p *Peer)UDP_handler_Peer(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
 	p.peers = append(p.peers, targetpeer)
     }
     p.m.Unlock()
-    addrs := strings.Split(string(data), " ")
-    if len(addrs) <= 1 {
-	return
-    }
     for _, addr := range addrs[1:] {
 	targetpeer.Update(addr)
     }

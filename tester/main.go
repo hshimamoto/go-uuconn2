@@ -328,6 +328,7 @@ func Scenario() {
     // ask to connect
     peer1.Do("CONNECT " + peer2.uaddr)
     peer1.Do("CONNECT " + peer3.uaddr)
+    peer2.Do("CONNECT " + peer3.uaddr)
 
     time.Sleep(time.Millisecond * 100)
 

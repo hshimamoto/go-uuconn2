@@ -1579,7 +1579,9 @@ func (p *Peer)SendPeerInfo() {
 	    peerid := conn.remote.peerid
 	    addrs := []string{conn.hostname}
 	    for _, addr := range conn.remote.remotes {
-		addrs = append(addrs, addr.addr)
+		if time.Since(addr.lastUpdate) < 30 * time.Second {
+		    addrs = append(addrs, addr.addr)
+		}
 	    }
 	    if len(addrs) == 1 {
 		// something wrong

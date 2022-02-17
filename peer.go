@@ -874,6 +874,28 @@ func (p *RemotePeer)String() string {
     return fmt.Sprintf("remotepeer:0x%x %s", p.peerid, p.StringRemotes())
 }
 
+func (p *RemotePeer)UpdateWithoutTime(addr string) {
+    remotes := []*RemoteAddr{}
+    create := true
+    for _, r := range p.remotes {
+	if r.addr == addr {
+	    create = false
+	    r.addr = addr
+	    remotes = append(remotes, r)
+	} else {
+	    remotes = append(remotes, r)
+	}
+    }
+    if create {
+	r := &RemoteAddr{
+	    addr: addr,
+	    lastUpdate: time.Now(),
+	}
+	remotes = append(remotes, r)
+    }
+    p.remotes = remotes
+}
+
 func (p *RemotePeer)Update(addr string) {
     remotes := []*RemoteAddr{}
     for _, r := range p.remotes {
@@ -1649,23 +1671,28 @@ func (p *Peer)UDP_handler_Peer(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     c := p.LookupConnectionById(peerid)
     if c != nil {
 	for _, addr := range addrs[1:] {
-	    c.remote.Update(addr)
+	    c.remote.UpdateWithoutTime(addr)
 	}
-	return
     }
     var targetpeer *RemotePeer = nil
+    peers := []*RemotePeer{}
     p.m.Lock()
     for _, peer := range p.peers {
-	if peer.peerid == peerid {
+	if peer.peerid != peerid {
+	    peers = append(peers, peer)
+	} else {
 	    targetpeer = peer
-	    break
 	}
     }
-    if targetpeer == nil {
+    if c == nil && targetpeer == nil {
 	targetpeer = &RemotePeer{ peerid: peerid }
-	p.peers = append(p.peers, targetpeer)
+	peers = append(peers, targetpeer)
     }
+    p.peers = peers
     p.m.Unlock()
+    if c != nil {
+	return
+    }
     for _, addr := range addrs[1:] {
 	targetpeer.Update(addr)
     }

@@ -48,6 +48,7 @@ type UDPMessage struct {
 
 type LocalSocket struct {
     sock *net.UDPConn
+    addr string
     global string
     running bool
     working bool
@@ -55,6 +56,7 @@ type LocalSocket struct {
     retired bool
     sender_dead bool
     dead bool
+    consist bool
     created time.Time
     m sync.Mutex
     q_sendmsg chan UDPMessage
@@ -73,6 +75,24 @@ func NewLocalSocket() *LocalSocket {
     s.global = ""
     s.created = time.Now()
     s.q_sendmsg = make(chan UDPMessage, 64)
+    return s
+}
+
+func NewConsistLocalSocket(addr string) *LocalSocket {
+    s := &LocalSocket{}
+    uaddr, err := net.ResolveUDPAddr("udp", addr)
+    if err != nil {
+	return nil
+    }
+    sock, err := net.ListenUDP("udp", uaddr)
+    if err != nil {
+	return nil
+    }
+    s.sock = sock
+    s.global = ""
+    s.created = time.Now()
+    s.q_sendmsg = make(chan UDPMessage, 64)
+    s.consist = true
     return s
 }
 
@@ -1921,6 +1941,17 @@ func (p *Peer)API_handler_CONFIG(conn net.Conn, words []string) {
 	    password = ops[0]
 	}
 	p.password = password
+    case "SERVER":
+	if len(ops) > 0 {
+	    // create consist socket
+	    sock := NewConsistLocalSocket(ops[0])
+	    if sock == nil {
+		return
+	    }
+	    p.m.Lock()
+	    p.lsocks = append(p.lsocks, sock)
+	    p.m.Unlock()
+	}
     }
 }
 
@@ -2162,12 +2193,19 @@ func (p *Peer)Housekeeper_Sockets() {
     // retire oldest socket
     var sock *LocalSocket = p.lsocks[0]
     for _, s := range p.lsocks {
+	if s.consist {
+	    // TODO: Force update
+	    s.created = time.Now()
+	    continue
+	}
 	if s.created.Before(sock.created) {
 	    sock = s
 	}
     }
-    sock.Retire()
     p.m.Unlock()
+    if ! sock.consist {
+	sock.Retire()
+    }
     // Force to check
     p.ProbeToChecker()
     p.lastCheck = time.Now()

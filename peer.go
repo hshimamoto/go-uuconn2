@@ -1367,8 +1367,10 @@ type Peer struct {
     lastCheck time.Time
     lastShow time.Time
     sockRetireTime time.Time
+    // configurable
     d_retire time.Duration
     d_housekeep time.Duration
+    max_lsocks int
     // flag global addr changed
     globalChanged bool
     q_sendmsg chan UDPMessage
@@ -1396,8 +1398,8 @@ func NewPeer(laddr string) (*Peer, error) {
     }
     p.serv = serv
     p.lsocks = []*LocalSocket{}
-    // start at most 3 sockets
-    for i := 0; i < 3; i++ {
+    p.max_lsocks = 3
+    for i := 0; i < p.max_lsocks; i++ {
 	s := NewLocalSocket()
 	if s != nil {
 	    p.lsocks = append(p.lsocks, s)
@@ -2178,13 +2180,25 @@ func (p *Peer)Housekeeper_Sockets() {
 	}
     }
     p.m.Unlock()
+    // keep sockets
+    p.m.Lock()
+    if len(p.lsocks) < p.max_lsocks {
+	p.m.Unlock()
+	sock := NewLocalSocket()
+	p.m.Lock()
+	if sock != nil {
+	    p.lsocks = append(p.lsocks, sock)
+	}
+    }
+    p.m.Unlock()
+    // retire
     if time.Since(p.sockRetireTime) < p.d_retire {
 	return
     }
     p.sockRetireTime = time.Now()
     p.m.Lock()
-    // prepare 4th socket
-    if len(p.lsocks) < 4 {
+    // prepare new socket
+    if len(p.lsocks) < p.max_lsocks + 1 {
 	p.m.Unlock()
 	sock := NewLocalSocket()
 	p.m.Lock()

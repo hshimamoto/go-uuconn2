@@ -130,6 +130,8 @@ func (s *LocalSocket)String() string {
 	s_state = "retired"
     } else if s.retiring {
 	s_state = "retiring"
+    } else if s.working {
+	s_state = "working"
     }
     return fmt.Sprintf("localsocket %v %s %s %s %s %s",
 	    s.sock.LocalAddr(), s.global,
@@ -1425,6 +1427,45 @@ func (p *Peer)Infof(f string, args ...interface{}) {
     logrus.Infof(header + f, args...)
 }
 
+func (p *Peer)CountLivingSockets() int {
+    p.m.Lock()
+    defer p.m.Unlock()
+    n := 0
+    for _, sock := range p.lsocks {
+	if sock.dead || sock.retiring || sock.retired {
+	    continue
+	}
+	n++
+    }
+    return n
+}
+
+func (p *Peer)CountWorkingSockets() int {
+    p.m.Lock()
+    defer p.m.Unlock()
+    n := 0
+    for _, sock := range p.lsocks {
+	if sock.IsReady() {
+	    n++
+	}
+    }
+    return n
+}
+
+func (p *Peer)AddLocalSocket() {
+    p.m.Lock()
+    defer p.m.Unlock()
+    // paranoia?
+    if len(p.lsocks) > p.max_lsocks + 1 {
+	return
+    }
+    sock := NewLocalSocket()
+    if sock == nil {
+	return
+    }
+    p.lsocks = append(p.lsocks, sock)
+}
+
 func (p *Peer)FindConnection(peerid uint32) *Connection {
     p.m.Lock()
     defer p.m.Unlock()
@@ -2181,32 +2222,25 @@ func (p *Peer)Housekeeper_Sockets() {
     }
     p.m.Unlock()
     // keep sockets
-    p.m.Lock()
-    if len(p.lsocks) < p.max_lsocks {
-	p.m.Unlock()
-	sock := NewLocalSocket()
-	p.m.Lock()
-	if sock != nil {
-	    p.lsocks = append(p.lsocks, sock)
-	}
+    if p.CountLivingSockets() < p.max_lsocks {
+	p.AddLocalSocket()
     }
-    p.m.Unlock()
     // retire
     if time.Since(p.sockRetireTime) < p.d_retire {
 	return
     }
-    p.sockRetireTime = time.Now()
-    p.m.Lock()
     // prepare new socket
-    if len(p.lsocks) < p.max_lsocks + 1 {
-	p.m.Unlock()
-	sock := NewLocalSocket()
-	p.m.Lock()
-	if sock != nil {
-	    p.lsocks = append(p.lsocks, sock)
+    if p.CountWorkingSockets() <= p.max_lsocks {
+	if p.CountLivingSockets() > p.max_lsocks {
+	    // wait to ready
+	    return
 	}
+	p.AddLocalSocket()
+	return
     }
+    p.sockRetireTime = time.Now()
     // retire oldest socket
+    p.m.Lock()
     var sock *LocalSocket = p.lsocks[0]
     for _, s := range p.lsocks {
 	if s.consist {

@@ -896,40 +896,23 @@ func (p *RemotePeer)String() string {
     return fmt.Sprintf("remotepeer:0x%x %s", p.peerid, p.StringRemotes())
 }
 
-func (p *RemotePeer)UpdateWithoutTime(addr string) {
-    remotes := []*RemoteAddr{}
-    create := true
+func (p *RemotePeer)AddRemoteAddr(addr string) *RemoteAddr {
     for _, r := range p.remotes {
 	if r.addr == addr {
-	    create = false
-	    r.addr = addr
-	    remotes = append(remotes, r)
-	} else {
-	    remotes = append(remotes, r)
+	    return r
 	}
     }
-    if create {
-	r := &RemoteAddr{
-	    addr: addr,
-	    lastUpdate: time.Now(),
-	}
-	remotes = append(remotes, r)
-    }
-    p.remotes = remotes
-}
-
-func (p *RemotePeer)Update(addr string) {
-    remotes := []*RemoteAddr{}
-    for _, r := range p.remotes {
-	if r.addr != addr {
-	    remotes = append(remotes, r)
-	}
-    }
-    r := &RemoteAddr{
+    ra := &RemoteAddr{
 	addr: addr,
 	lastUpdate: time.Now(),
     }
-    p.remotes = append(remotes, r)
+    p.remotes = append(p.remotes, ra)
+    return ra
+}
+
+func (p *RemotePeer)Update(addr string) {
+    ra := p.AddRemoteAddr(addr)
+    ra.lastUpdate = time.Now()
 }
 
 func (p *RemotePeer)Freshers() []*RemoteAddr {
@@ -1736,7 +1719,7 @@ func (p *Peer)UDP_handler_Peer(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     c := p.LookupConnectionById(peerid)
     if c != nil {
 	for _, addr := range addrs[1:] {
-	    c.remote.UpdateWithoutTime(addr)
+	    c.remote.AddRemoteAddr(addr)
 	}
     }
     var targetpeer *RemotePeer = nil

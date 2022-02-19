@@ -20,7 +20,7 @@ type Peer struct {
     uaddr string
 }
 
-func NewPeer(addr string) (*Peer, error) {
+func NewPeer(addr, log string) (*Peer, error) {
     cmd := exec.Command("./uuconn2", "peer", addr)
     // start test process
     err := cmd.Start()
@@ -28,7 +28,7 @@ func NewPeer(addr string) (*Peer, error) {
 	return nil, err
     }
     time.Sleep(time.Millisecond * 10)
-    os.Rename("uuconn2.log", "uuconn2-1.log")
+    os.Rename("uuconn2.log", log)
     p := &Peer{
 	addr: addr,
 	cmd: cmd,
@@ -251,20 +251,20 @@ func EchoBackTest(addr string) {
 func Scenario() {
     logrus.Infof("start scenario")
     // local uuconn2 instance 1
-    peer1, err := NewPeer("localhost:8888")
+    peer1, err := NewPeer("localhost:8888", "uuconn2-1.log")
     if err != nil {
 	logrus.Infof("NewPeer: %v", err)
 	return
     }
     // local uuconn2 instance 2
-    peer2, err := NewPeer("localhost:8889")
+    peer2, err := NewPeer("localhost:8889", "uuconn2-2.log")
     if err != nil {
 	logrus.Infof("NewPeer: %v", err)
 	// kill peer1
 	peer1.Stop()
 	return
     }
-    peer3, err := NewPeer("localhost:8890")
+    peer3, err := NewPeer("localhost:8890", "uuconn2-3.log")
     if err != nil {
 	logrus.Infof("NewPeer: %v", err)
 	// kill peer1 and peer2

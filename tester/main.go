@@ -297,6 +297,9 @@ func Scenario() {
     peer2.Do("CONFIG HOUSEKEEPER short")
     peer3.Do("CONFIG HOUSEKEEPER short")
 
+    // small number of sockets
+    peer3.Do("CONFIG SOCKETS 1")
+
     // wait
     dumpinfo(peers, 5)
 

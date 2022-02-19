@@ -1986,6 +1986,19 @@ func (p *Peer)API_handler_CONFIG(conn net.Conn, words []string) {
 	    password = ops[0]
 	}
 	p.password = password
+    case "SOCKETS":
+	max_lsocks := p.max_lsocks
+	if len(ops) > 0 {
+	    n, err := strconv.ParseInt(ops[0], 10, 64)
+	    if err != nil {
+		return
+	    }
+	    if n <= 0 {
+		return
+	    }
+	    max_lsocks = int(n)
+	}
+	p.max_lsocks = max_lsocks
     case "SERVER":
 	if len(ops) > 0 {
 	    // create consist socket
@@ -2226,7 +2239,14 @@ func (p *Peer)Housekeeper_Sockets() {
 	p.AddLocalSocket()
     }
     // retire
-    if time.Since(p.sockRetireTime) < p.d_retire {
+    retire := false
+    if p.CountWorkingSockets() > p.max_lsocks {
+	retire = true
+    }
+    if time.Since(p.sockRetireTime) > p.d_retire {
+	retire = true
+    }
+    if ! retire {
 	return
     }
     // prepare new socket

@@ -1449,6 +1449,28 @@ func (p *Peer)AddLocalSocket() {
     p.lsocks = append(p.lsocks, sock)
 }
 
+func (p *Peer)RetireLocalSocket() {
+    // find oldest one
+    var sock *LocalSocket = nil
+    p.m.Lock()
+    for _, s := range p.lsocks {
+	if s.consist {
+	    continue
+	}
+	if sock == nil {
+	    sock = s
+	    continue
+	}
+	if s.created.Before(sock.created) {
+	    sock = s
+	}
+    }
+    p.m.Unlock()
+    if sock != nil {
+	sock.Retire()
+    }
+}
+
 func (p *Peer)FindConnection(peerid uint32) *Connection {
     p.m.Lock()
     defer p.m.Unlock()
@@ -2241,24 +2263,9 @@ func (p *Peer)Housekeeper_Sockets() {
 	p.AddLocalSocket()
 	return
     }
-    p.sockRetireTime = time.Now()
     // retire oldest socket
-    p.m.Lock()
-    var sock *LocalSocket = p.lsocks[0]
-    for _, s := range p.lsocks {
-	if s.consist {
-	    // TODO: Force update
-	    s.created = time.Now()
-	    continue
-	}
-	if s.created.Before(sock.created) {
-	    sock = s
-	}
-    }
-    p.m.Unlock()
-    if ! sock.consist {
-	sock.Retire()
-    }
+    p.RetireLocalSocket()
+    p.sockRetireTime = time.Now()
     // Force to check
     p.ProbeToChecker()
     p.lastCheck = time.Now()

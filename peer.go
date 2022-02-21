@@ -1370,6 +1370,7 @@ type Peer struct {
     s_rsnd, s_rrcv, s_rsck, s_rrck uint32
     s_housekeep uint32
     s_badpass uint32
+    s_retire uint32
 }
 
 func NewPeer(laddr string) (*Peer, error) {
@@ -1467,6 +1468,7 @@ func (p *Peer)RetireLocalSocket() {
     }
     p.m.Unlock()
     if sock != nil {
+	p.s_retire++
 	sock.Retire()
     }
 }
@@ -2088,7 +2090,7 @@ func (p *Peer)API_handler(conn net.Conn) {
 	    p.s_probe, p.s_inform, p.s_peer, p.s_open, p.s_openack,
 	    p.s_rsnd, p.s_rrcv, p.s_rsck, p.s_rrck)
 	s_hk := fmt.Sprintf("[housekeep %d]", p.s_housekeep)
-	s_misc := fmt.Sprintf("[misc %d]", p.s_badpass)
+	s_misc := fmt.Sprintf("[misc %d %d]", p.s_badpass, p.s_retire)
 	resp += fmt.Sprintf("stats %s %s %s\n", s_recv, s_hk, s_misc)
 	resp += fmt.Sprintf("config retire:%v housekeep:%v lsocks:%d\n",
 	    p.d_retire, p.d_housekeep, p.max_lsocks)

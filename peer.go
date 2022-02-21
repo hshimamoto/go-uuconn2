@@ -2190,6 +2190,9 @@ func (p *Peer)API_handler(conn net.Conn) {
 	if ! hit {
 	    p.ProbeToChecker()
 	}
+    case "RETIRE":
+	// try to retire
+	p.RetireLocalSocket()
     case "CONFIG":
 	p.API_handler_CONFIG(conn, words[1:])
     }

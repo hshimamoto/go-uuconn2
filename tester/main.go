@@ -66,6 +66,32 @@ func (p *Peer)Info() {
     p.uaddr = get_addr(info)
 }
 
+func (p *Peer)RetireAndWait() {
+    info := p.Do("INFO")
+    before := get_lsocks(info)
+    p.Do("RETIRE")
+    for {
+	time.Sleep(time.Second)
+	info := p.Do("INFO")
+	if get_lsocks(info) < before {
+	    break
+	}
+    }
+}
+
+func get_lsocks(info string) int {
+    n := 0
+    for _, l := range strings.Split(info, "\n") {
+	if len(l) < 12 {
+	    continue
+	}
+	if l[0:11] == "localsocket" {
+	    n++
+	}
+    }
+    return n
+}
+
 func get_addr(info string) string {
     for _, l := range strings.Split(info, "\n") {
 	if len(l) < 12 {
@@ -300,8 +326,20 @@ func Scenario() {
     // small number of sockets
     peer3.Do("CONFIG SOCKETS 1")
 
+    // wait a bit
+    time.Sleep(time.Millisecond * 100)
+
+    // retire 2 sockets
+    peer3.RetireAndWait()
+    peer3.RetireAndWait()
+
     // wait
     dumpinfo(peers, 5)
+
+    // get info again
+    for _, p := range peers {
+	p.Info()
+    }
 
     // start test server
     ts_HelloWorld := NewTestServer(":18889")

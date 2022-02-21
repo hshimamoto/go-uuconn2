@@ -320,6 +320,7 @@ func Scenario() {
 
     // set HOUSEKEEPER interval short
     peer1.Do("CONFIG HOUSEKEEPER short")
+    peer1.Do("CONFIG RETIRE 3")
     peer2.Do("CONFIG HOUSEKEEPER short")
     peer3.Do("CONFIG HOUSEKEEPER short")
 

@@ -1978,6 +1978,19 @@ func (p *Peer)API_handler_CONFIG(conn net.Conn, words []string) {
     target := words[0]
     ops := words[1:]
     switch target {
+    case "RETIRE":
+	d_retire := p.d_retire
+	if len(ops) > 0 {
+	    n, err := strconv.ParseInt(ops[0], 10, 64)
+	    if err != nil {
+		return
+	    }
+	    if n <= 0 {
+		return
+	    }
+	    d_retire = time.Duration(n) * time.Second
+	}
+	p.d_retire = d_retire
     case "HOUSEKEEPER":
 	if ops[0] == "short" {
 	    p.d_housekeep = time.Second

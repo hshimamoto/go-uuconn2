@@ -2077,6 +2077,8 @@ func (p *Peer)API_handler(conn net.Conn) {
 	s_hk := fmt.Sprintf("[housekeep %d]", p.s_housekeep)
 	s_misc := fmt.Sprintf("[misc %d]", p.s_badpass)
 	resp += fmt.Sprintf("stats %s %s %s\n", s_recv, s_hk, s_misc)
+	resp += fmt.Sprintf("config retire:%v housekeep:%v lsocks:%d\n",
+	    p.d_retire, p.d_housekeep, p.max_lsocks)
 	conn.Write([]byte(resp))
     case "SHOW":
 	// SHOW <connection>

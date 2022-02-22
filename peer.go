@@ -1475,6 +1475,24 @@ func (p *Peer)RetireLocalSocket() {
     }
 }
 
+func (p *Peer)RotateLocalSocket() {
+    // prepare new socket
+    if p.CountWorkingSockets() <= p.max_lsocks {
+	if p.CountLivingSockets() > p.max_lsocks {
+	    // wait to ready
+	    return
+	}
+	p.AddLocalSocket()
+	return
+    }
+    // retire oldest socket
+    p.RetireLocalSocket()
+    p.sockRetireTime = time.Now()
+    // Force to check
+    p.ProbeToChecker()
+    p.lastCheck = time.Now()
+}
+
 func (p *Peer)FindConnection(peerid uint32) *Connection {
     p.m.Lock()
     defer p.m.Unlock()
@@ -2265,7 +2283,7 @@ func (p *Peer)Housekeeper_Sockets() {
     if p.CountLivingSockets() < p.max_lsocks {
 	p.AddLocalSocket()
     }
-    // retire
+    // check rotation
     retire := false
     if p.CountWorkingSockets() > p.max_lsocks {
 	retire = true
@@ -2273,24 +2291,9 @@ func (p *Peer)Housekeeper_Sockets() {
     if time.Since(p.sockRetireTime) > p.d_retire {
 	retire = true
     }
-    if ! retire {
-	return
+    if retire {
+	p.RotateLocalSocket()
     }
-    // prepare new socket
-    if p.CountWorkingSockets() <= p.max_lsocks {
-	if p.CountLivingSockets() > p.max_lsocks {
-	    // wait to ready
-	    return
-	}
-	p.AddLocalSocket()
-	return
-    }
-    // retire oldest socket
-    p.RetireLocalSocket()
-    p.sockRetireTime = time.Now()
-    // Force to check
-    p.ProbeToChecker()
-    p.lastCheck = time.Now()
 }
 
 func (p *Peer)Housekeeper_Connection(c *Connection) {

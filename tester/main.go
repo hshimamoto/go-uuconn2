@@ -22,6 +22,8 @@ type Peer struct {
 
 func NewPeer(addr, log string) (*Peer, error) {
     cmd := exec.Command("./uuconn2", "peer", addr)
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
     // start test process
     err := cmd.Start()
     if err != nil {

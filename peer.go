@@ -50,6 +50,7 @@ type LocalSocket struct {
     sock *net.UDPConn
     addr string
     global string
+    started bool
     running bool
     working bool
     retiring bool
@@ -158,6 +159,7 @@ func (s *LocalSocket)Sender() {
 }
 
 func (s *LocalSocket)Run(cb func(*LocalSocket, *net.UDPAddr, []byte)) {
+    s.started = true
     s.running = true
     // start sender goroutine
     go s.Sender()
@@ -2227,7 +2229,7 @@ func (p *Peer)ShowSocketsStats() {
 func (p *Peer)Housekeeper_Sockets() {
     p.m.Lock()
     for _, sock := range p.lsocks {
-	if sock.running == false && sock.dead == false {
+	if sock.started == false {
 	    // start local socket
 	    go sock.Run(p.UDP_handler)
 	}

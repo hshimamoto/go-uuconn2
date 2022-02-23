@@ -1280,11 +1280,17 @@ func (ls *LocalServer)Handle_Session(lconn net.Conn) {
     // prepare message
     msg := []byte("openSSSSDDDDXXXX" + ls.raddr)
     binary.LittleEndian.PutUint32(msg[12:], st.streamid)
+    prev := time.Now()
     for st.ropen == false {
 	// try to send
 	ls.remote.q_broadcast <- msg
 	// wait
 	<-st.q_work
+	if time.Since(prev) > time.Minute {
+	    // give up
+	    logrus.Infof("LocalServer: give up open to %s", ls.raddr)
+	    return
+	}
     }
 
     // forground runner

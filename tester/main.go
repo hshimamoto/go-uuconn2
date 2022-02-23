@@ -428,8 +428,8 @@ func Scenario() {
     time.Sleep(time.Millisecond * 100)
 
     // show connection
-    peer1.Do("SHOW " + peer2.peerid)
-    peer2.Do("SHOW " + peer1.peerid)
+    peer1.Do("SHOW peer2")
+    peer2.Do("SHOW peer1")
 
     dumpinfo(peers, 3)
 
@@ -455,8 +455,8 @@ func Scenario() {
     ts.Stop()
 
     // show connection
-    peer1.Do("SHOW " + peer2.peerid)
-    peer2.Do("SHOW " + peer1.peerid)
+    peer1.Do("SHOW peer2")
+    peer2.Do("SHOW peer1")
 
     dumpinfo(peers, 2)
 
@@ -468,8 +468,8 @@ func Scenario() {
 	start := time.Now()
 	for time.Since(start) < 10 * time.Second {
 	    // show connection
-	    peer1.Do("SHOW " + peer2.peerid)
-	    peer2.Do("SHOW " + peer1.peerid)
+	    peer1.Do("SHOW peer2")
+	    peer2.Do("SHOW peer1")
 	    time.Sleep(3 * time.Second)
 	}
     }()
@@ -477,14 +477,14 @@ func Scenario() {
     res_eb := EchoBackTest("localhost:38888")
 
     // show connection
-    peer1.Do("SHOW " + peer2.peerid)
-    peer2.Do("SHOW " + peer1.peerid)
+    peer1.Do("SHOW peer2")
+    peer2.Do("SHOW peer1")
 
     dumpinfo(peers, 5)
 
     // show connection
-    peer1.Do("SHOW " + peer2.peerid)
-    peer2.Do("SHOW " + peer1.peerid)
+    peer1.Do("SHOW peer2")
+    peer2.Do("SHOW peer1")
 
     logrus.Infof("ending test")
 

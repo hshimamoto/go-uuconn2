@@ -1379,13 +1379,13 @@ type Peer struct {
     rservs []*RemoteServer
     serv *session.Server
     peerid uint32
-    hostname string
     running bool
-    password string
     lastCheck time.Time
     lastShow time.Time
     sockRetireTime time.Time
     // configurable
+    hostname string
+    password string
     d_retire time.Duration
     d_housekeep time.Duration
     max_lsocks int

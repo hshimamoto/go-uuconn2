@@ -109,7 +109,7 @@ func (s *LocalSocket)UpdateGlobal(global string) bool {
     if s.global != global {
 	old = s.global
 	s.global = global
-	updated = true
+	updated = old != ""
     }
     s.m.Unlock()
     if updated {

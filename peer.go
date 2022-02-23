@@ -360,6 +360,7 @@ type Stream struct {
     running bool
     reader_dead bool
     writer_dead bool
+    main_dead bool
     // outgoing block
     oblk *DataBlock
     oblkacks uint32 // number of acks in this block
@@ -471,7 +472,10 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 		    st.m.Lock()
 		    st.oblkTrigSend = false
 		    st.m.Unlock()
-		    Kick(st.q_work)
+		    // TODO
+		    if st.running {
+			Kick(st.q_work)
+		    }
 		    st.s_resendtrigger++
 		}()
 	    }
@@ -839,6 +843,7 @@ func (st *Stream)Run(code, ackcode string, q_sendmsg, q_broadcast chan []byte, c
 		st.oblk.rest, st.oblkack, st.iblk.rest)
 	*/
     }
+    st.main_dead = true
     st.Infof("done")
 }
 
@@ -1100,7 +1105,7 @@ func (c *Connection)SweepStreams() {
 	st.m.Lock()
 	if st.sweep {
 	    del = true
-	} else if st.running == false && st.reader_dead && st.writer_dead {
+	} else if st.running == false && st.reader_dead && st.writer_dead && st.main_dead {
 	    st.sweep = true
 	} else if st.ropen == false && st.lopen == false {
 	    stop = true

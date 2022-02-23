@@ -891,6 +891,7 @@ type RemotePeer struct {
     remotes []*RemoteAddr
     peerid uint32
     hostname string
+    m sync.Mutex
 }
 
 func (p *RemotePeer)Infof(f string, args ...interface{}) {
@@ -899,8 +900,11 @@ func (p *RemotePeer)Infof(f string, args ...interface{}) {
 }
 
 func (p *RemotePeer)StringRemotes() string {
+    p.m.Lock()
+    list := p.remotes
+    p.m.Unlock()
     remotes := []string{}
-    for _, r := range p.remotes {
+    for _, r := range list {
 	s := fmt.Sprintf("%s[%v]", r.addr, time.Since(r.lastUpdate))
 	remotes = append(remotes, s)
     }
@@ -912,6 +916,8 @@ func (p *RemotePeer)String() string {
 }
 
 func (p *RemotePeer)AddRemoteAddr(addr string) *RemoteAddr {
+    p.m.Lock()
+    defer p.m.Unlock()
     for _, r := range p.remotes {
 	if r.addr == addr {
 	    return r
@@ -931,8 +937,11 @@ func (p *RemotePeer)Update(addr string) {
 }
 
 func (p *RemotePeer)Freshers() []*RemoteAddr {
+    p.m.Lock()
+    list := p.remotes
+    p.m.Unlock()
     remotes := []*RemoteAddr{}
-    for _, r := range p.remotes {
+    for _, r := range list {
 	if time.Since(r.lastUpdate) < 30 * time.Second {
 	    remotes = append(remotes, r)
 	}
@@ -945,6 +954,8 @@ func (p *RemotePeer)Freshers() []*RemoteAddr {
 }
 
 func (p *RemotePeer)CheckRemoteAddrs() {
+    p.m.Lock()
+    defer p.m.Unlock()
     // check remotes and remove
     remotes := []*RemoteAddr{}
     for _, r := range p.remotes {

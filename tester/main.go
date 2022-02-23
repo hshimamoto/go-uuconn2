@@ -465,7 +465,7 @@ func Scenario() {
 	    // show connection
 	    peer1.Do("SHOW " + peer2.peerid)
 	    peer2.Do("SHOW " + peer1.peerid)
-	    time.Sleep(time.Second)
+	    time.Sleep(3 * time.Second)
 	}
     }()
 

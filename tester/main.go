@@ -73,7 +73,7 @@ func (p *Peer)RetireAndWait() {
     before := get_lsocks(info)
     p.Do("RETIRE")
     for {
-	time.Sleep(time.Second)
+	time.Sleep(2 * time.Second)
 	info := p.Do("INFO")
 	if get_lsocks(info) < before {
 	    break
@@ -206,13 +206,18 @@ func HelloWorldTest(addr string) bool {
     conn.Write([]byte("HELLO"))
 
     // read WORLD
-    ticker := time.NewTicker(2 * time.Second)
+    ticker := time.NewTicker(3 * time.Second)
     ch := make(chan bool)
 
     go func() {
 	buf := make([]byte, 256)
-	n, _ := conn.Read(buf)
-	logrus.Infof("read %s from conn1", buf[:n])
+	n, err := conn.Read(buf)
+	if n <= 0 {
+	    logrus.Infof("Read: %v", err)
+	    return
+	} else {
+	    logrus.Infof("read %s from conn", buf[:n])
+	}
 	ch <- true
     }()
 
@@ -244,7 +249,7 @@ func EchoBackHandler(conn net.Conn) {
     logrus.Infof("Done Echo Back Server")
 }
 
-func EchoBackTest(addr string) {
+func EchoBackTest(addr string) bool {
     conn, _ := session.Dial(addr)
 
     buf0 := make([]byte, 256)
@@ -286,6 +291,8 @@ func EchoBackTest(addr string) {
     }
 
     logrus.Infof("Echo Back Test Done")
+
+    return ! bad
 }
 
 func Scenario() {
@@ -354,12 +361,10 @@ func Scenario() {
     peer3.Do("CONFIG HOSTNAME peer3")
     peer4.Do("CONFIG HOSTNAME peer4")
     // set HOUSEKEEPER interval short
-    peer0.Do("CONFIG HOUSEKEEPER short")
-    peer1.Do("CONFIG HOUSEKEEPER short")
+    for _, p := range peers {
+	p.Do("CONFIG HOUSEKEEPER short")
+    }
     peer1.Do("CONFIG RETIRE 3")
-    peer2.Do("CONFIG HOUSEKEEPER short")
-    peer3.Do("CONFIG HOUSEKEEPER short")
-    peer4.Do("CONFIG HOUSEKEEPER short")
 
     // server has small number of sockets
     peer0.Do("CONFIG SOCKETS 1")
@@ -469,7 +474,7 @@ func Scenario() {
 	}
     }()
 
-    EchoBackTest("localhost:38888")
+    res_eb := EchoBackTest("localhost:38888")
 
     // show connection
     peer1.Do("SHOW " + peer2.peerid)
@@ -493,7 +498,7 @@ func Scenario() {
     // clear peers
     peers = []*Peer{}
 
-    logrus.Infof("test results: %v %v", res_hs, res_ts)
+    logrus.Infof("test results: %v %v %v", res_hs, res_ts, res_eb)
     logrus.Infof("end scenario")
 }
 

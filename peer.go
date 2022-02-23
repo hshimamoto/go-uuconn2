@@ -2303,14 +2303,16 @@ func (p *Peer)Housekeeper_Sockets() {
     }
     // check rotation
     retire := false
-    if p.CountWorkingSockets() > p.max_lsocks {
-	retire = true
-    }
-    if time.Since(p.sockRetireTime) > p.d_retire {
-	retire = true
-    }
-    if p.globalChanged {
-	retire = true
+    if p.CountWorkingSockets() > 0 {
+	if p.CountWorkingSockets() > p.max_lsocks {
+	    retire = true
+	}
+	if time.Since(p.sockRetireTime) > p.d_retire {
+	    retire = true
+	}
+	if p.globalChanged {
+	    retire = true
+	}
     }
     if retire {
 	p.RotateLocalSocket()

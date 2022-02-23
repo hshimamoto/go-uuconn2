@@ -290,80 +290,86 @@ func EchoBackTest(addr string) {
 
 func Scenario() {
     logrus.Infof("start scenario")
+    peers := []*Peer{}
+    defer func() {
+	for _, p := range peers {
+	    p.Stop()
+	}
+    }()
+    // local uuconn2 instance 0: server
+    peer0, err := NewPeer("localhost:8880", "uuconn2-0.log")
+    if err != nil {
+	logrus.Infof("NewPeer: %v", err)
+	return
+    }
+    peers = append(peers, peer0)
     // local uuconn2 instance 1
     peer1, err := NewPeer("localhost:8888", "uuconn2-1.log")
     if err != nil {
 	logrus.Infof("NewPeer: %v", err)
 	return
     }
+    peers = append(peers, peer1)
     // local uuconn2 instance 2
     peer2, err := NewPeer("localhost:8889", "uuconn2-2.log")
     if err != nil {
 	logrus.Infof("NewPeer: %v", err)
-	// kill peer1
-	peer1.Stop()
 	return
     }
+    peers = append(peers, peer2)
+    // local uuconn2 instance 3
     peer3, err := NewPeer("localhost:8890", "uuconn2-3.log")
     if err != nil {
 	logrus.Infof("NewPeer: %v", err)
-	// kill peer1 and peer2
-	peer1.Stop()
-	peer2.Stop()
 	return
     }
+    peers = append(peers, peer3)
+    // local uuconn2 instance 4
     peer4, err := NewPeer("localhost:8891", "uuconn2-4.log")
     if err != nil {
 	logrus.Infof("NewPeer: %v", err)
-	// kill peer1, peer2 and peer3
-	peer1.Stop()
-	peer2.Stop()
-	peer3.Stop()
 	return
     }
+    peers = append(peers, peer4)
 
     // wait a bit
     time.Sleep(time.Millisecond * 100)
 
     logrus.Infof("uuconn2 instances started")
 
-    peers := []*Peer{
-	peer1,
-	peer2,
-	peer3,
-	peer4,
-    }
-
     for _, p := range peers {
 	p.Info()
     }
 
+    logrus.Infof("addr0 = %s", peer0.uaddr)
     logrus.Infof("addr1 = %s", peer1.uaddr)
     logrus.Infof("addr2 = %s", peer2.uaddr)
     logrus.Infof("addr3 = %s", peer3.uaddr)
     logrus.Infof("addr4 = %s", peer4.uaddr)
 
     // set hostname
+    peer0.Do("CONFIG HOSTNAME peer0")
     peer1.Do("CONFIG HOSTNAME peer1")
     peer2.Do("CONFIG HOSTNAME peer2")
     peer3.Do("CONFIG HOSTNAME peer3")
     peer4.Do("CONFIG HOSTNAME peer4")
     // set HOUSEKEEPER interval short
+    peer0.Do("CONFIG HOUSEKEEPER short")
     peer1.Do("CONFIG HOUSEKEEPER short")
     peer1.Do("CONFIG RETIRE 3")
     peer2.Do("CONFIG HOUSEKEEPER short")
     peer3.Do("CONFIG HOUSEKEEPER short")
     peer4.Do("CONFIG HOUSEKEEPER short")
 
-    // small number of sockets
-    peer3.Do("CONFIG SOCKETS 1")
+    // server has small number of sockets
+    peer0.Do("CONFIG SOCKETS 1")
 
     // wait a bit
     time.Sleep(time.Millisecond * 100)
 
     // retire 2 sockets
-    peer3.RetireAndWait()
-    peer3.RetireAndWait()
+    peer0.RetireAndWait()
+    peer0.RetireAndWait()
 
     // wait
     dumpinfo(peers, 5)
@@ -386,24 +392,33 @@ func Scenario() {
     go ts_EchoBack.Run()
 
     // set password
-    peer1.Do("CONFIG PASSWORD tester")
+    peer0.Do("CONFIG PASSWORD tester")
 
     // ask to connect will be fail
-    peer1.Do("CONNECT " + peer2.uaddr)
+    peer1.Do("CONNECT " + peer0.uaddr)
 
     // wait
     dumpinfo(peers, 3)
 
     // set password
-    peer2.Do("CONFIG PASSWORD tester")
-    peer3.Do("CONFIG PASSWORD tester")
-    peer4.Do("CONFIG PASSWORD tester")
+    for _, p := range peers {
+	p.Do("CONFIG PASSWORD tester")
+    }
 
-    // ask to connect
+    // ask to connect server
+    peer1.Do("CONNECT " + peer0.uaddr)
+    peer2.Do("CONNECT " + peer0.uaddr)
+    peer3.Do("CONNECT " + peer0.uaddr)
+    peer4.Do("CONNECT " + peer0.uaddr)
+
+    // wait a bit
+    time.Sleep(time.Millisecond * 100)
+
+    // wait
+    dumpinfo(peers, 3)
+
+    // make connection btw peer1 and peer2
     peer1.Do("CONNECT " + peer2.uaddr)
-    peer1.Do("CONNECT " + peer3.uaddr)
-    peer2.Do("CONNECT " + peer3.uaddr)
-    peer4.Do("CONNECT " + peer3.uaddr)
 
     time.Sleep(time.Millisecond * 100)
 
@@ -474,6 +489,9 @@ func Scenario() {
     for _, p := range peers {
 	p.Stop()
     }
+
+    // clear peers
+    peers = []*Peer{}
 
     logrus.Infof("test results: %v %v", res_hs, res_ts)
     logrus.Infof("end scenario")

@@ -2309,6 +2309,9 @@ func (p *Peer)Housekeeper_Sockets() {
     if time.Since(p.sockRetireTime) > p.d_retire {
 	retire = true
     }
+    if p.globalChanged {
+	retire = true
+    }
     if retire {
 	p.RotateLocalSocket()
     }

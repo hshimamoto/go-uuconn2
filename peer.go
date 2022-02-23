@@ -971,6 +971,7 @@ type Connection struct {
     q_sendmsg chan []byte
     q_broadcast chan []byte
     running bool
+    informed bool
     //
     updateTime time.Time
     stopTime time.Time
@@ -1805,6 +1806,7 @@ func (p *Peer)UDP_handler_Peer(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
     if c != nil {
 	return
     }
+    targetpeer.hostname = addrs[0]
     for _, addr := range addrs[1:] {
 	targetpeer.Update(addr)
     }
@@ -2349,7 +2351,7 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
 	}
     }
     remotes := c.Freshers()
-    if now.After(c.lastProbe.Add(time.Second * 10)) {
+    if now.After(c.lastProbe.Add(p.d_housekeep * 2)) {
 	for _, r := range remotes {
 	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
 		p.ProbeTo(addr, 0)
@@ -2357,12 +2359,13 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
 	}
 	c.lastProbe = now
     }
-    if now.After(c.lastInform.Add(time.Minute)) {
+    if c.informed == false || now.After(c.lastInform.Add(p.d_housekeep * 10)) {
 	for _, r := range remotes {
 	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
 		p.InformTo(addr, p.peerid)
 	    }
 	}
+	c.informed = true
 	c.lastInform = now
     }
     // finally show connection stats

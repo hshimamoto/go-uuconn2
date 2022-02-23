@@ -358,6 +358,8 @@ type Stream struct {
     lopen, ropen bool
     createdTime time.Time
     running bool
+    reader_dead bool
+    writer_dead bool
     // outgoing block
     oblk *DataBlock
     oblkacks uint32 // number of acks in this block
@@ -630,6 +632,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
     reading := false
     q_wait := make(chan bool, 16)
     q_read := make(chan bool, 16)
+    q_dead := make(chan bool)
     go func() {
 	for st.running {
 	    m.Lock()
@@ -663,6 +666,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	    Kick(q_read)
 	    break
 	}
+	q_dead <- true
     }()
     drain := 0
     for st.running {
@@ -720,7 +724,7 @@ func (st *Stream)SelfReader(conn net.Conn) {
 		st.m.Unlock()
 		Kick(st.q_work)
 		st.s_selfreaderclose++
-		return
+		break
 	    }
 	    // self side connection closed
 	    // wakeup from housekeeping
@@ -730,6 +734,8 @@ func (st *Stream)SelfReader(conn net.Conn) {
 	case <-q_read:
 	}
     }
+    <-q_dead
+    st.reader_dead = true
 }
 
 func (st *Stream)SelfWriter(conn net.Conn) {
@@ -746,6 +752,7 @@ func (st *Stream)SelfWriter(conn net.Conn) {
 	}
 	<-st.q_flush
     }
+    st.writer_dead = true
 }
 
 func (st *Stream)Run(code, ackcode string, q_sendmsg, q_broadcast chan []byte, conn net.Conn) {
@@ -1093,7 +1100,7 @@ func (c *Connection)SweepStreams() {
 	st.m.Lock()
 	if st.sweep {
 	    del = true
-	} else if st.running == false {
+	} else if st.running == false && st.reader_dead && st.writer_dead {
 	    st.sweep = true
 	} else if st.ropen == false && st.lopen == false {
 	    stop = true

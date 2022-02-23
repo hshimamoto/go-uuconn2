@@ -1372,6 +1372,7 @@ type Peer struct {
     max_lsocks int
     // flag global addr changed
     globalChanged bool
+    rotating bool
     q_sendmsg chan UDPMessage
     m sync.Mutex
     // stats
@@ -1500,6 +1501,7 @@ func (p *Peer)RotateLocalSocket() {
     // retire oldest socket
     p.RetireLocalSocket()
     p.sockRetireTime = time.Now()
+    p.rotating = false
     // Force to check
     p.ProbeToChecker()
     p.lastCheck = time.Now()
@@ -2302,19 +2304,18 @@ func (p *Peer)Housekeeper_Sockets() {
 	p.AddLocalSocket()
     }
     // check rotation
-    retire := false
     if p.CountWorkingSockets() > 0 {
 	if p.CountWorkingSockets() > p.max_lsocks {
-	    retire = true
+	    p.rotating = true
 	}
 	if time.Since(p.sockRetireTime) > p.d_retire {
-	    retire = true
+	    p.rotating = true
 	}
 	if p.globalChanged {
-	    retire = true
+	    p.rotating = true
 	}
     }
-    if retire {
+    if p.rotating {
 	p.RotateLocalSocket()
     }
 }

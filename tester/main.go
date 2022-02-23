@@ -320,6 +320,10 @@ func Scenario() {
     logrus.Infof("addr2 = %s", peer2.uaddr)
     logrus.Infof("addr3 = %s", peer3.uaddr)
 
+    // set hostname
+    peer1.Do("CONFIG HOSTNAME peer1")
+    peer2.Do("CONFIG HOSTNAME peer2")
+    peer3.Do("CONFIG HOSTNAME peer3")
     // set HOUSEKEEPER interval short
     peer1.Do("CONFIG HOUSEKEEPER short")
     peer1.Do("CONFIG RETIRE 3")

@@ -2007,6 +2007,12 @@ func (p *Peer)API_handler_CONFIG(conn net.Conn, words []string) {
     target := words[0]
     ops := words[1:]
     switch target {
+    case "HOSTNAME":
+	hostname := p.hostname
+	if len(ops) > 0 {
+	    hostname = ops[0]
+	}
+	p.hostname = hostname
     case "RETIRE":
 	d_retire := p.d_retire
 	if len(ops) > 0 {

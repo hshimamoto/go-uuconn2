@@ -155,7 +155,7 @@ func (ts *TestServer)Stop() {
     ts.serv.Stop()
 }
 
-func (ts *TestServer)Test(addr string) {
+func (ts *TestServer)Test(addr string) bool {
     // connect to addr and recv data...
     conn, _ := session.Dial(addr)
     defer conn.Close()
@@ -166,7 +166,11 @@ func (ts *TestServer)Test(addr string) {
 	for n := 0; n < 256; n++ {
 	    buf[n] = byte(255 - n)
 	}
-	conn.Read(buf)
+	c := 0
+	for c < 256 {
+	    r, _ := conn.Read(buf[c:])
+	    c += r
+	}
 	for n := 0; n < 256; n++ {
 	    if buf[n] != byte(n) {
 		bad = true
@@ -177,6 +181,8 @@ func (ts *TestServer)Test(addr string) {
 	logrus.Infof("bad result")
     }
     logrus.Infof("complete")
+
+    return ! bad
 }
 
 func HelloWorldHandler(conn net.Conn) {
@@ -190,7 +196,9 @@ func HelloWorldHandler(conn net.Conn) {
     conn.Close()
 }
 
-func HelloWorldTest(addr string) {
+func HelloWorldTest(addr string) bool {
+    result := true
+
     conn, _ := session.Dial(addr)
 
     // write HELLO
@@ -198,7 +206,7 @@ func HelloWorldTest(addr string) {
     conn.Write([]byte("HELLO"))
 
     // read WORLD
-    ticker := time.NewTicker(time.Second)
+    ticker := time.NewTicker(2 * time.Second)
     ch := make(chan bool)
 
     go func() {
@@ -210,12 +218,16 @@ func HelloWorldTest(addr string) {
 
     select {
     case <-ch:
+	result = true
     case <-ticker.C:
 	logrus.Infof("Timeout")
+	result = false
     }
 
     conn.Close()
     ticker.Stop()
+
+    return result
 }
 
 func EchoBackHandler(conn net.Conn) {
@@ -395,12 +407,12 @@ func Scenario() {
 
     dumpinfo(peers, 3)
 
-    HelloWorldTest("127.0.0.1:18888")
+    res_hs := HelloWorldTest("127.0.0.1:18888")
 
     // wait a bit
     time.Sleep(time.Millisecond * 100)
 
-    ts.Test("localhost:28888")
+    res_ts := ts.Test("localhost:28888")
 
     // wait a bit
     time.Sleep(time.Millisecond * 100)
@@ -448,6 +460,7 @@ func Scenario() {
 	p.Stop()
     }
 
+    logrus.Infof("test results: %v %v", res_hs, res_ts)
     logrus.Infof("end scenario")
 }
 

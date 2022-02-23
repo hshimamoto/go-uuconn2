@@ -890,6 +890,7 @@ type RemoteAddr struct {
 type RemotePeer struct {
     remotes []*RemoteAddr
     peerid uint32
+    hostname string
 }
 
 func (p *RemotePeer)Infof(f string, args ...interface{}) {
@@ -907,7 +908,7 @@ func (p *RemotePeer)StringRemotes() string {
 }
 
 func (p *RemotePeer)String() string {
-    return fmt.Sprintf("remotepeer:0x%x %s", p.peerid, p.StringRemotes())
+    return fmt.Sprintf("remotepeer:0x%x %s %s", p.peerid, p.hostname, p.StringRemotes())
 }
 
 func (p *RemotePeer)AddRemoteAddr(addr string) *RemoteAddr {
@@ -1790,8 +1791,10 @@ func (p *Peer)UDP_handler_Peer(s *LocalSocket, addr *net.UDPAddr, spid, dpid uin
 	    targetpeer = peer
 	}
     }
-    if c == nil && targetpeer == nil {
-	targetpeer = &RemotePeer{ peerid: peerid }
+    if c == nil {
+	if targetpeer == nil {
+	    targetpeer = &RemotePeer{ peerid: peerid, hostname: addrs[0] }
+	}
 	peers = append(peers, targetpeer)
     }
     p.peers = peers

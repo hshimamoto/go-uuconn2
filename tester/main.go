@@ -312,6 +312,15 @@ func Scenario() {
 	peer2.Stop()
 	return
     }
+    peer4, err := NewPeer("localhost:8891", "uuconn2-4.log")
+    if err != nil {
+	logrus.Infof("NewPeer: %v", err)
+	// kill peer1, peer2 and peer3
+	peer1.Stop()
+	peer2.Stop()
+	peer3.Stop()
+	return
+    }
 
     // wait a bit
     time.Sleep(time.Millisecond * 100)
@@ -322,6 +331,7 @@ func Scenario() {
 	peer1,
 	peer2,
 	peer3,
+	peer4,
     }
 
     for _, p := range peers {
@@ -331,16 +341,19 @@ func Scenario() {
     logrus.Infof("addr1 = %s", peer1.uaddr)
     logrus.Infof("addr2 = %s", peer2.uaddr)
     logrus.Infof("addr3 = %s", peer3.uaddr)
+    logrus.Infof("addr4 = %s", peer4.uaddr)
 
     // set hostname
     peer1.Do("CONFIG HOSTNAME peer1")
     peer2.Do("CONFIG HOSTNAME peer2")
     peer3.Do("CONFIG HOSTNAME peer3")
+    peer4.Do("CONFIG HOSTNAME peer4")
     // set HOUSEKEEPER interval short
     peer1.Do("CONFIG HOUSEKEEPER short")
     peer1.Do("CONFIG RETIRE 3")
     peer2.Do("CONFIG HOUSEKEEPER short")
     peer3.Do("CONFIG HOUSEKEEPER short")
+    peer4.Do("CONFIG HOUSEKEEPER short")
 
     // small number of sockets
     peer3.Do("CONFIG SOCKETS 1")
@@ -384,11 +397,13 @@ func Scenario() {
     // set password
     peer2.Do("CONFIG PASSWORD tester")
     peer3.Do("CONFIG PASSWORD tester")
+    peer4.Do("CONFIG PASSWORD tester")
 
     // ask to connect
     peer1.Do("CONNECT " + peer2.uaddr)
     peer1.Do("CONNECT " + peer3.uaddr)
     peer2.Do("CONNECT " + peer3.uaddr)
+    peer4.Do("CONNECT " + peer3.uaddr)
 
     time.Sleep(time.Millisecond * 100)
 

@@ -1398,7 +1398,7 @@ type Peer struct {
     // stats
     s_udp uint32
     s_ignore uint32
-    s_probe uint32
+    s_probe, s_preq uint32
     s_inform uint32
     s_peer uint32
     s_open, s_openack uint32
@@ -1760,6 +1760,57 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
     }
 }
 
+// ProbeRequest Message
+// |preq|spid|dpid|rpid|
+func (p *Peer)UDP_handler_ProbeReq(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
+    p.s_preq++
+    if len(data) < 8 {
+	return
+    }
+    opid := binary.LittleEndian.Uint32(data[0:4])
+    rpid := binary.LittleEndian.Uint32(data[4:8])
+    p.Infof("preq 0x%x 0x%x 0x%x 0x%x", spid, dpid, opid, rpid)
+    if rpid == p.peerid {
+	p.Infof("recv ProbeRequest from 0x%x", spid)
+	// lookup in peer
+	var targetpeer *RemotePeer = nil
+	p.m.Lock()
+	for _, peer := range p.peers {
+	    if peer.peerid == opid {
+		targetpeer = peer
+		break
+	    }
+	}
+	p.m.Unlock()
+	if targetpeer == nil {
+	    p.Infof("unable to find remotepeer 0x%x", opid)
+	    return
+	}
+	if len(targetpeer.remotes) == 0 {
+	    p.Infof("no remotes on remotepeer 0x%x", opid)
+	    return
+	}
+	addr, err := net.ResolveUDPAddr("udp", targetpeer.remotes[0].addr)
+	if err != nil {
+	    p.Infof("ResolveUDPAddr: %v", err)
+	    return
+	}
+	// probe target to connect
+	p.ProbeTo(addr, 0)
+	return
+    }
+    // lookup peer which id is rpid
+    remote := p.LookupConnectionById(rpid)
+    if remote == nil {
+	return
+    }
+    // relay "preq" to target
+    msg := []byte("preqSSSSDDDDOOOORRRR")
+    binary.LittleEndian.PutUint32(msg[12:], opid)
+    binary.LittleEndian.PutUint32(msg[16:], rpid)
+    remote.q_sendmsg <- msg
+}
+
 // Inform Message
 // |info|spid|dpid|hostname global...|
 func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid uint32, data []byte) {
@@ -2023,6 +2074,7 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     data := msg[12:]
     switch string(code) {
     case "prob": p.UDP_handler_Probe(s, addr, spid, dpid, data)
+    case "preq": p.UDP_handler_ProbeReq(s, addr, spid, dpid, data)
     case "info": p.UDP_handler_Inform(s, addr, spid, dpid, data)
     case "peer": p.UDP_handler_Peer(s, addr, spid, dpid, data)
     case "open": p.UDP_handler_Open(s, addr, spid, dpid, data)
@@ -2064,6 +2116,38 @@ func (p *Peer)API_handler_CONNECT(conn net.Conn, words []string) {
     }
     // probe target to connect
     p.ProbeTo(addr, 0)
+}
+
+func (p *Peer)API_handler_CONNECTREQ(conn net.Conn, words []string) {
+    // need target
+    if len(words) < 3 {
+	return
+    }
+    proxy := words[1]
+    // lookup proxy peer
+    pp := p.LookupConnection(proxy)
+    if pp == nil {
+	return
+    }
+    target := words[2]
+    // lookup in peer
+    var targetpeer *RemotePeer = nil
+    p.m.Lock()
+    for _, peer := range p.peers {
+	if peer.hostname == target {
+	    targetpeer = peer
+	    break
+	}
+    }
+    p.m.Unlock()
+    if targetpeer == nil {
+	return
+    }
+    // ask relay "preq" to target
+    msg := []byte("preqSSSSDDDDOOOORRRR")
+    binary.LittleEndian.PutUint32(msg[12:], p.peerid)
+    binary.LittleEndian.PutUint32(msg[16:], targetpeer.peerid)
+    pp.q_sendmsg <- msg
 }
 
 func (p *Peer)API_handler_ADD(conn net.Conn, words []string) {
@@ -2237,9 +2321,10 @@ func (p *Peer)API_handler(conn net.Conn) {
 	}
 	p.m.Unlock()
 	// stats
-	s_recv := fmt.Sprintf("[recv %d udp %d ignore %d %d %d %d %d %d %d %d %d]",
+	s_recv := fmt.Sprintf("[recv %d udp %d ignore %d %d %d %d %d %d %d %d %d %d]",
 	    p.s_udp, p.s_ignore,
-	    p.s_probe, p.s_inform, p.s_peer, p.s_open, p.s_openack,
+	    p.s_probe, p.s_preq, p.s_inform, p.s_peer,
+	    p.s_open, p.s_openack,
 	    p.s_rsnd, p.s_rrcv, p.s_rsck, p.s_rrck)
 	s_hk := fmt.Sprintf("[housekeep %d]", p.s_housekeep)
 	s_misc := fmt.Sprintf("[misc %d %d]", p.s_badpass, p.s_retire)
@@ -2279,6 +2364,8 @@ func (p *Peer)API_handler(conn net.Conn) {
 	conn.Write([]byte(resp))
     case "CONNECT":
 	p.API_handler_CONNECT(conn, words)
+    case "CONNECTREQ":
+	p.API_handler_CONNECTREQ(conn, words)
     case "ADD":
 	p.API_handler_ADD(conn, words)
     case "DEL":

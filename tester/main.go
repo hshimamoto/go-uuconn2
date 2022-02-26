@@ -424,6 +424,22 @@ func Scenario() {
 
     // make connection btw peer1 and peer2
     peer1.Do("CONNECT peer2")
+    // wait peer3 has connected peer0
+    waiting := true
+    for waiting {
+	info := peer3.Do("INFO")
+	for _, l := range strings.Split(info, "\n") {
+	    f := strings.Fields(l)
+	    if len(f) > 2 {
+		if f[1] == "peer0" {
+		    waiting = false
+		    break
+		}
+	    }
+	}
+	time.Sleep(time.Second)
+    }
+    peer3.Do("CONNECTREQ peer0 peer4")
 
     time.Sleep(time.Millisecond * 100)
 

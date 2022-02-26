@@ -423,7 +423,7 @@ func Scenario() {
     dumpinfo(peers, 3)
 
     // make connection btw peer1 and peer2
-    peer1.Do("CONNECT " + peer2.uaddr)
+    peer1.Do("CONNECT peer2")
 
     time.Sleep(time.Millisecond * 100)
 
@@ -435,10 +435,10 @@ func Scenario() {
 
     logrus.Infof("adding localserv")
 
-    peer1.Do("ADD 127.0.0.1:18888 " + peer2.peerid + ":127.0.0.1:18889")
-    peer1.Do("ADD 127.0.0.1:28888 " + peer2.peerid + ":127.0.0.1:28889")
+    peer1.Do("ADD 127.0.0.1:18888 peer2:127.0.0.1:18889")
+    peer1.Do("ADD 127.0.0.1:28888 peer2:127.0.0.1:28889")
 
-    peer2.Do("ADD 127.0.0.1:38888 " + peer1.peerid + ":127.0.0.1:38889")
+    peer2.Do("ADD 127.0.0.1:38888 peer1:127.0.0.1:38889")
 
     dumpinfo(peers, 3)
 

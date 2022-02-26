@@ -2033,6 +2033,36 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     }
 }
 
+func (p *Peer)API_handler_CONNECT(conn net.Conn, words []string) {
+    // need target
+    if len(words) == 1 {
+	return
+    }
+    target := words[1]
+    // lookup in peer
+    var targetpeer *RemotePeer = nil
+    p.m.Lock()
+    for _, peer := range p.peers {
+	if peer.hostname == target {
+	    targetpeer = peer
+	    break
+	}
+    }
+    if targetpeer != nil {
+	if len(targetpeer.remotes) > 0 {
+	    target = targetpeer.remotes[0].addr
+	}
+    }
+    p.m.Unlock()
+    addr, err := net.ResolveUDPAddr("udp", target)
+    if err != nil {
+	p.Infof("ResolveUDPAddr: %v", err)
+	return
+    }
+    // probe target to connect
+    p.ProbeTo(addr, 0)
+}
+
 func (p *Peer)API_handler_CONFIG(conn net.Conn, words []string) {
     if len(words) == 0{
 	return
@@ -2192,17 +2222,7 @@ func (p *Peer)API_handler(conn net.Conn) {
 	resp := fmt.Sprintf("%s\n%s%s", head, ls, rs)
 	conn.Write([]byte(resp))
     case "CONNECT":
-	// need target
-	if len(words) == 1 {
-	    return
-	}
-	addr, err := net.ResolveUDPAddr("udp", words[1])
-	if err != nil {
-	    p.Infof("ResolveUDPAddr: %v", err)
-	    return
-	}
-	// probe target to connect
-	p.ProbeTo(addr, 0)
+	p.API_handler_CONNECT(conn, words)
     case "ADD":
 	// need local and remote
 	if len(words) < 3 {

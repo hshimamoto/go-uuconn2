@@ -2088,12 +2088,96 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
     }
 }
 
-func (p *Peer)API_handler_CONNECT(conn net.Conn, words []string) {
-    // need target
-    if len(words) == 1 {
+func (p *Peer)API_handler_INFO(conn net.Conn, opts []string) {
+    resp := ""
+    resp += fmt.Sprintf("%s 0x%x\n", p.hostname, p.peerid)
+    // sockets
+    resp += "sockets:\n"
+    p.m.Lock()
+    for _, sock := range p.lsocks {
+	resp += fmt.Sprintf("%s\n", sock.String())
+    }
+    p.m.Unlock()
+    // connections
+    resp += "connections:\n"
+    p.m.Lock()
+    for _, c := range p.conns {
+	resp += fmt.Sprintf("%s\n", c.String())
+    }
+    p.m.Unlock()
+    // peers
+    resp += "peers:\n"
+    p.m.Lock()
+    for _, peer := range p.peers {
+	resp += fmt.Sprintf("%s\n", peer.String())
+    }
+    p.m.Unlock()
+    // local servers
+    resp += "local:\n"
+    p.m.Lock()
+    for _, serv := range p.lservs {
+	resp += fmt.Sprintf("%s\n", serv.String())
+    }
+    p.m.Unlock()
+    // local servers
+    resp += "remote:\n"
+    p.m.Lock()
+    for _, serv := range p.rservs {
+	resp += fmt.Sprintf("%s\n", serv.String())
+    }
+    p.m.Unlock()
+    // stats
+    s_recv := fmt.Sprintf("[recv %d udp %d ignore %d %d %d %d %d %d %d %d %d %d]",
+	p.s_udp, p.s_ignore,
+	p.s_probe, p.s_preq, p.s_inform, p.s_peer,
+	p.s_open, p.s_openack,
+	p.s_rsnd, p.s_rrcv, p.s_rsck, p.s_rrck)
+    s_hk := fmt.Sprintf("[housekeep %d]", p.s_housekeep)
+    s_misc := fmt.Sprintf("[misc %d %d]", p.s_badpass, p.s_retire)
+    resp += fmt.Sprintf("stats %s %s %s\n", s_recv, s_hk, s_misc)
+    resp += fmt.Sprintf("config retire:%v housekeep:%v lsocks:%d\n",
+	p.d_retire, p.d_housekeep, p.max_lsocks)
+    conn.Write([]byte(resp))
+}
+
+func (p *Peer)API_handler_SHOW(conn net.Conn, opts []string) {
+    // SHOW <connection>
+    if len(opts) == 0 {
 	return
     }
-    target := words[1]
+    c := p.LookupConnection(opts[0])
+    if c == nil {
+	return
+    }
+    head := c.String()
+    lss := []string{}
+    rss := []string{}
+    c.m.Lock()
+    for _, s := range c.lstreams {
+	lss = append(lss, s.Stat())
+    }
+    for _, s := range c.rstreams {
+	rss = append(rss, s.Stat())
+    }
+    c.m.Unlock()
+    ls := ""
+    if len(lss) > 0 {
+	ls = fmt.Sprintf("local streams:\n%s\n", strings.Join(lss, "\n"))
+    }
+    rs := ""
+    if len(rss) > 0 {
+	rs = fmt.Sprintf("remote streams:\n%s\n", strings.Join(rss, "\n"))
+    }
+    resp := fmt.Sprintf("%s\n%s%s", head, ls, rs)
+    conn.Write([]byte(resp))
+}
+
+func (p *Peer)API_handler_CONNECT(conn net.Conn, opts []string) {
+    // need target
+    if len(opts) == 0 {
+	return
+    }
+    target := opts[0]
     // lookup in peer
     var targetpeer *RemotePeer = nil
     p.m.Lock()
@@ -2118,18 +2202,18 @@ func (p *Peer)API_handler_CONNECT(conn net.Conn, words []string) {
     p.ProbeTo(addr, 0)
 }
 
-func (p *Peer)API_handler_CONNECTREQ(conn net.Conn, words []string) {
+func (p *Peer)API_handler_CONNECTREQ(conn net.Conn, opts []string) {
     // need target
-    if len(words) < 3 {
+    if len(opts) < 2 {
 	return
     }
-    proxy := words[1]
+    proxy := opts[0]
     // lookup proxy peer
     pp := p.LookupConnection(proxy)
     if pp == nil {
 	return
     }
-    target := words[2]
+    target := opts[1]
     // lookup in peer
     var targetpeer *RemotePeer = nil
     p.m.Lock()
@@ -2150,15 +2234,15 @@ func (p *Peer)API_handler_CONNECTREQ(conn net.Conn, words []string) {
     pp.q_sendmsg <- msg
 }
 
-func (p *Peer)API_handler_ADD(conn net.Conn, words []string) {
+func (p *Peer)API_handler_ADD(conn net.Conn, opts []string) {
     // need local and remote
-    if len(words) < 3 {
+    if len(opts) < 2 {
 	conn.Write([]byte("Bad Request"))
 	return
     }
-    laddr := words[1]
+    laddr := opts[0]
     // lookup remote first name:addr:port
-    r := strings.SplitN(words[2], ":", 2)
+    r := strings.SplitN(opts[1], ":", 2)
     rname := r[0]
     raddr := r[1]
     remote := p.LookupConnection(rname)
@@ -2182,13 +2266,13 @@ func (p *Peer)API_handler_ADD(conn net.Conn, words []string) {
     p.m.Unlock()
 }
 
-func (p *Peer)API_handler_DEL(conn net.Conn, words []string) {
+func (p *Peer)API_handler_DEL(conn net.Conn, opts []string) {
     // need local
-    if len(words) < 2 {
+    if len(opts) == 0 {
 	conn.Write([]byte("Bad Request"))
 	return
     }
-    laddr := words[1]
+    laddr := opts[0]
     var target *LocalServer = nil
     p.m.Lock()
     for _, ls := range p.lservs {
@@ -2203,12 +2287,36 @@ func (p *Peer)API_handler_DEL(conn net.Conn, words []string) {
     }
 }
 
-func (p *Peer)API_handler_CONFIG(conn net.Conn, words []string) {
-    if len(words) == 0{
+func (p *Peer)API_handler_CHECKER(conn net.Conn, opts []string) {
+    if len(opts) == 0 {
 	return
     }
-    target := words[0]
-    ops := words[1:]
+    // new checker?
+    checker := opts[0]
+    hit := false
+    p.m.Lock()
+    for _, c := range p.checkers {
+	if c == checker {
+	    hit = true
+	    break
+	}
+    }
+    if ! hit {
+	p.Infof("new checker: %s", checker)
+	p.checkers = append(p.checkers, checker)
+    }
+    p.m.Unlock()
+    if ! hit {
+	p.ProbeToChecker()
+    }
+}
+
+func (p *Peer)API_handler_CONFIG(conn net.Conn, opts []string) {
+    if len(opts) == 0{
+	return
+    }
+    target := opts[0]
+    ops := opts[1:]
     switch target {
     case "HOSTNAME":
 	hostname := p.hostname
@@ -2281,121 +2389,23 @@ func (p *Peer)API_handler(conn net.Conn) {
     req := strings.TrimSpace(firstline)
     words := strings.Fields(req)
     p.Infof("API: %v", words)
-    switch words[0] {
-    case "INFO":
-	resp := ""
-	resp += fmt.Sprintf("%s 0x%x\n", p.hostname, p.peerid)
-	// sockets
-	resp += "sockets:\n"
-	p.m.Lock()
-	for _, sock := range p.lsocks {
-	    resp += fmt.Sprintf("%s\n", sock.String())
-	}
-	p.m.Unlock()
-	// connections
-	resp += "connections:\n"
-	p.m.Lock()
-	for _, c := range p.conns {
-	    resp += fmt.Sprintf("%s\n", c.String())
-	}
-	p.m.Unlock()
-	// peers
-	resp += "peers:\n"
-	p.m.Lock()
-	for _, peer := range p.peers {
-	    resp += fmt.Sprintf("%s\n", peer.String())
-	}
-	p.m.Unlock()
-	// local servers
-	resp += "local:\n"
-	p.m.Lock()
-	for _, serv := range p.lservs {
-	    resp += fmt.Sprintf("%s\n", serv.String())
-	}
-	p.m.Unlock()
-	// local servers
-	resp += "remote:\n"
-	p.m.Lock()
-	for _, serv := range p.rservs {
-	    resp += fmt.Sprintf("%s\n", serv.String())
-	}
-	p.m.Unlock()
-	// stats
-	s_recv := fmt.Sprintf("[recv %d udp %d ignore %d %d %d %d %d %d %d %d %d %d]",
-	    p.s_udp, p.s_ignore,
-	    p.s_probe, p.s_preq, p.s_inform, p.s_peer,
-	    p.s_open, p.s_openack,
-	    p.s_rsnd, p.s_rrcv, p.s_rsck, p.s_rrck)
-	s_hk := fmt.Sprintf("[housekeep %d]", p.s_housekeep)
-	s_misc := fmt.Sprintf("[misc %d %d]", p.s_badpass, p.s_retire)
-	resp += fmt.Sprintf("stats %s %s %s\n", s_recv, s_hk, s_misc)
-	resp += fmt.Sprintf("config retire:%v housekeep:%v lsocks:%d\n",
-	    p.d_retire, p.d_housekeep, p.max_lsocks)
-	conn.Write([]byte(resp))
-    case "SHOW":
-	// SHOW <connection>
-	if len(words) == 1 {
-	    return
-	}
-	c := p.LookupConnection(words[1])
-	if c == nil {
-	    return
-	}
-	head := c.String()
-	lss := []string{}
-	rss := []string{}
-	c.m.Lock()
-	for _, s := range c.lstreams {
-	    lss = append(lss, s.Stat())
-	}
-	for _, s := range c.rstreams {
-	    rss = append(rss, s.Stat())
-	}
-	c.m.Unlock()
-	ls := ""
-	if len(lss) > 0 {
-	    ls = fmt.Sprintf("local streams:\n%s\n", strings.Join(lss, "\n"))
-	}
-	rs := ""
-	if len(rss) > 0 {
-	    rs = fmt.Sprintf("remote streams:\n%s\n", strings.Join(rss, "\n"))
-	}
-	resp := fmt.Sprintf("%s\n%s%s", head, ls, rs)
-	conn.Write([]byte(resp))
-    case "CONNECT":
-	p.API_handler_CONNECT(conn, words)
-    case "CONNECTREQ":
-	p.API_handler_CONNECTREQ(conn, words)
-    case "ADD":
-	p.API_handler_ADD(conn, words)
-    case "DEL":
-	p.API_handler_DEL(conn, words)
-    case "CHECKER":
-	if len(words) == 1 {
-	    return
-	}
-	// new checker?
-	hit := false
-	p.m.Lock()
-	for _, c := range p.checkers {
-	    if c == words[1] {
-		hit = true
-		break
-	    }
-	}
-	if ! hit {
-	    p.Infof("new checker: %s", words[1])
-	    p.checkers = append(p.checkers, words[1])
-	}
-	p.m.Unlock()
-	if ! hit {
-	    p.ProbeToChecker()
-	}
+    cmd := words[0]
+    opts := []string{}
+    if len(words) > 1 {
+	opts = words[1:]
+    }
+    switch cmd {
+    case "INFO":	p.API_handler_INFO(conn, opts)
+    case "SHOW":	p.API_handler_SHOW(conn, opts)
+    case "CONNECT":	p.API_handler_CONNECT(conn, opts)
+    case "CONNECTREQ":	p.API_handler_CONNECTREQ(conn, opts)
+    case "ADD":		p.API_handler_ADD(conn, opts)
+    case "DEL":		p.API_handler_DEL(conn, opts)
+    case "CHECKER":	p.API_handler_CHECKER(conn, opts)
+    case "CONFIG":	p.API_handler_CONFIG(conn, opts)
     case "RETIRE":
 	// try to retire
 	p.RetireLocalSocket()
-    case "CONFIG":
-	p.API_handler_CONFIG(conn, words[1:])
     }
 }
 

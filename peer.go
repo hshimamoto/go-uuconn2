@@ -2063,6 +2063,59 @@ func (p *Peer)API_handler_CONNECT(conn net.Conn, words []string) {
     p.ProbeTo(addr, 0)
 }
 
+func (p *Peer)API_handler_ADD(conn net.Conn, words []string) {
+    // need local and remote
+    if len(words) < 3 {
+	conn.Write([]byte("Bad Request"))
+	return
+    }
+    laddr := words[1]
+    // lookup remote first name:addr:port
+    r := strings.SplitN(words[2], ":", 2)
+    rname := r[0]
+    raddr := r[1]
+    remote := p.LookupConnection(rname)
+    if remote == nil {
+	p.Infof("unknown remote %s", rname)
+	resp := fmt.Sprintf("Unknown: %s", rname)
+	conn.Write([]byte(resp))
+	return
+    }
+    ls, err := NewLocalServer(laddr, raddr, remote)
+    if err != nil {
+	p.Infof("NewLocalServer: %v", err)
+	resp := fmt.Sprintf("Error: %v", err)
+	conn.Write([]byte(resp))
+	return
+    }
+    // start LocalServer here
+    go ls.Run()
+    p.m.Lock()
+    p.lservs = append(p.lservs, ls)
+    p.m.Unlock()
+}
+
+func (p *Peer)API_handler_DEL(conn net.Conn, words []string) {
+    // need local
+    if len(words) < 2 {
+	conn.Write([]byte("Bad Request"))
+	return
+    }
+    laddr := words[1]
+    var target *LocalServer = nil
+    p.m.Lock()
+    for _, ls := range p.lservs {
+	if ls.laddr == laddr {
+	    target = ls
+	    break
+	}
+    }
+    p.m.Unlock()
+    if target != nil {
+	target.Stop()
+    }
+}
+
 func (p *Peer)API_handler_CONFIG(conn net.Conn, words []string) {
     if len(words) == 0{
 	return
@@ -2224,54 +2277,9 @@ func (p *Peer)API_handler(conn net.Conn) {
     case "CONNECT":
 	p.API_handler_CONNECT(conn, words)
     case "ADD":
-	// need local and remote
-	if len(words) < 3 {
-	    conn.Write([]byte("Bad Request"))
-	    return
-	}
-	laddr := words[1]
-	// lookup remote first name:addr:port
-	r := strings.SplitN(words[2], ":", 2)
-	rname := r[0]
-	raddr := r[1]
-	remote := p.LookupConnection(rname)
-	if remote == nil {
-	    p.Infof("unknown remote %s", rname)
-	    resp := fmt.Sprintf("Unknown: %s", rname)
-	    conn.Write([]byte(resp))
-	    return
-	}
-	ls, err := NewLocalServer(laddr, raddr, remote)
-	if err != nil {
-	    p.Infof("NewLocalServer: %v", err)
-	    resp := fmt.Sprintf("Error: %v", err)
-	    conn.Write([]byte(resp))
-	    return
-	}
-	// start LocalServer here
-	go ls.Run()
-	p.m.Lock()
-	p.lservs = append(p.lservs, ls)
-	p.m.Unlock()
+	p.API_handler_ADD(conn, words)
     case "DEL":
-	// need local
-	if len(words) < 2 {
-	    conn.Write([]byte("Bad Request"))
-	    return
-	}
-	laddr := words[1]
-	var target *LocalServer = nil
-	p.m.Lock()
-	for _, ls := range p.lservs {
-	    if ls.laddr == laddr {
-		target = ls
-		break
-	    }
-	}
-	p.m.Unlock()
-	if target != nil {
-	    target.Stop()
-	}
+	p.API_handler_DEL(conn, words)
     case "CHECKER":
 	if len(words) == 1 {
 	    return

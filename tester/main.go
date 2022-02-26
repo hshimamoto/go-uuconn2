@@ -373,7 +373,7 @@ func Scenario() {
     time.Sleep(time.Millisecond * 100)
 
     // retire 2 sockets
-    peer0.RetireAndWait()
+    peer0.Do("RETIRE")
     peer0.RetireAndWait()
 
     // wait

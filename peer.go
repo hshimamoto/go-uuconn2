@@ -1493,6 +1493,9 @@ func (p *Peer)RetireLocalSocket() {
 	if s.consist {
 	    continue
 	}
+	if s.retiring {
+	    continue
+	}
 	if sock == nil {
 	    sock = s
 	    continue

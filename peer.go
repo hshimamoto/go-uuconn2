@@ -2514,14 +2514,6 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
 	// TODO remove it
 	return
     }
-    if p.needInform {
-	for _, r := range c.remote.remotes {
-	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
-		p.InformTo(addr, p.peerid)
-		p.ProbeTo(addr, 0)
-	    }
-	}
-    }
     remotes := c.Freshers()
     if now.After(c.lastProbe.Add(p.d_housekeep * 2)) {
 	for _, r := range remotes {
@@ -2531,8 +2523,18 @@ func (p *Peer)Housekeeper_Connection(c *Connection) {
 	}
 	c.lastProbe = now
     }
-    if c.informed == false || now.After(c.lastInform.Add(p.d_housekeep * 10)) {
-	for _, r := range remotes {
+    need_inform := false
+    if time.Since(c.startTime) < time.Minute {
+	need_inform = true
+    }
+    if c.informed == false {
+	need_inform = true
+    }
+    if time.Since(c.lastInform) > p.d_housekeep * 10 {
+	need_inform = true
+    }
+    if need_inform {
+	for _, r := range c.remote.remotes {
 	    if addr, err := net.ResolveUDPAddr("udp", r.addr); err == nil {
 		p.InformTo(addr, p.peerid)
 	    }

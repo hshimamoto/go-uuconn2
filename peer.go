@@ -46,6 +46,26 @@ type UDPMessage struct {
     msg []byte
 }
 
+type LocalSocketStats struct {
+    s_recv, s_recverr uint32
+    s_send, s_senderr uint32
+}
+
+func (s *LocalSocketStats)StatsString() string {
+    s_send := fmt.Sprintf("[send %d %d]",
+	s.s_send, s.s_senderr)
+    s_recv := fmt.Sprintf("[recv %d %d]",
+	s.s_recv, s.s_recverr)
+    return fmt.Sprintf("%s %s", s_send, s_recv)
+}
+
+func (s *LocalSocketStats)Add(src *LocalSocketStats) {
+    s.s_recv += src.s_recv
+    s.s_recverr += src.s_recverr
+    s.s_send += src.s_send
+    s.s_senderr += src.s_senderr
+}
+
 type LocalSocket struct {
     sock *net.UDPConn
     addr string
@@ -62,8 +82,7 @@ type LocalSocket struct {
     m sync.Mutex
     q_sendmsg chan UDPMessage
     // stats
-    s_recv, s_recverr uint32
-    s_send, s_senderr uint32
+    LocalSocketStats
 }
 
 func NewLocalSocket() *LocalSocket {
@@ -120,10 +139,7 @@ func (s *LocalSocket)UpdateGlobal(global string) bool {
 
 func (s *LocalSocket)String() string {
     s_qlen := fmt.Sprintf("[qlen %d]", len(s.q_sendmsg))
-    s_send := fmt.Sprintf("[send %d %d]",
-	s.s_send, s.s_senderr)
-    s_recv := fmt.Sprintf("[recv %d %d]",
-	s.s_recv, s.s_recverr)
+    s_stats := s.LocalSocketStats.StatsString()
     s_state := "running"
     if s.dead {
 	s_state = "dead"
@@ -134,9 +150,9 @@ func (s *LocalSocket)String() string {
     } else if s.working {
 	s_state = "working"
     }
-    return fmt.Sprintf("localsocket %v %s %s %s %s %s",
+    return fmt.Sprintf("localsocket %v %s %s %s %s",
 	    s.sock.LocalAddr(), s.global,
-	    s_qlen, s_send, s_recv, s_state)
+	    s_qlen, s_stats, s_state)
 }
 
 func (s *LocalSocket)Sender() {
@@ -1396,6 +1412,7 @@ type Peer struct {
     q_sendmsg chan UDPMessage
     m sync.Mutex
     // stats
+    lsocks_stats LocalSocketStats
     s_udp uint32
     s_ignore uint32
     s_probe, s_preq uint32
@@ -2097,6 +2114,8 @@ func (p *Peer)API_handler_INFO(conn net.Conn, opts []string) {
     for _, sock := range p.lsocks {
 	resp += fmt.Sprintf("%s\n", sock.String())
     }
+    // show retired stats
+    resp += fmt.Sprintf("retired: %s\n", p.lsocks_stats.StatsString())
     p.m.Unlock()
     // connections
     resp += "connections:\n"
@@ -2431,7 +2450,9 @@ func (p *Peer)Housekeeper_Sockets() {
     p.m.Lock()
     socks := []*LocalSocket{}
     for _, sock := range p.lsocks {
-	if sock.dead == false {
+	if sock.dead {
+	    p.lsocks_stats.Add(&sock.LocalSocketStats)
+	} else {
 	    socks = append(socks, sock)
 	}
     }

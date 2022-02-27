@@ -1629,6 +1629,28 @@ func (p *Peer)LookupConnectionAndRemoteStream(peerid uint32, data []byte) (*Conn
     return c, c.LookupRemoteStream(streamid)
 }
 
+func (p *Peer)LookupRemotePeerById(peerid uint32) *RemotePeer {
+    p.m.Lock()
+    defer p.m.Unlock()
+    for _, peer := range p.peers {
+	if peer.peerid == peerid {
+	    return peer
+	}
+    }
+    return nil
+}
+
+func (p *Peer)LookupRemotePeerByName(hostname string) *RemotePeer {
+    p.m.Lock()
+    defer p.m.Unlock()
+    for _, peer := range p.peers {
+	if peer.hostname == hostname {
+	    return peer
+	}
+    }
+    return nil
+}
+
 func (p *Peer)SendFromAll(udpmsg UDPMessage) {
     p.m.Lock()
     socks := p.lsocks
@@ -1790,15 +1812,7 @@ func (p *Peer)UDP_handler_ProbeReq(s *LocalSocket, addr *net.UDPAddr, spid, dpid
     if rpid == p.peerid {
 	p.Infof("recv ProbeRequest from 0x%x", spid)
 	// lookup in peer
-	var targetpeer *RemotePeer = nil
-	p.m.Lock()
-	for _, peer := range p.peers {
-	    if peer.peerid == opid {
-		targetpeer = peer
-		break
-	    }
-	}
-	p.m.Unlock()
+	targetpeer := p.LookupRemotePeerById(opid)
 	if targetpeer == nil {
 	    p.Infof("unable to find remotepeer 0x%x", opid)
 	    return
@@ -2198,20 +2212,12 @@ func (p *Peer)API_handler_CONNECT(conn net.Conn, opts []string) {
     }
     target := opts[0]
     // lookup in peer
-    var targetpeer *RemotePeer = nil
-    p.m.Lock()
-    for _, peer := range p.peers {
-	if peer.hostname == target {
-	    targetpeer = peer
-	    break
-	}
-    }
+    targetpeer := p.LookupRemotePeerByName(target)
     if targetpeer != nil {
 	if len(targetpeer.remotes) > 0 {
 	    target = targetpeer.remotes[0].addr
 	}
     }
-    p.m.Unlock()
     addr, err := net.ResolveUDPAddr("udp", target)
     if err != nil {
 	p.Infof("ResolveUDPAddr: %v", err)

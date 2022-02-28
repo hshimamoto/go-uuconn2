@@ -66,10 +66,75 @@ func (s *LocalSocketStats)Add(src *LocalSocketStats) {
     s.s_senderr += src.s_senderr
 }
 
+type GlobalAddr struct {
+    addr string
+    remotes []string
+    lastUpdate time.Time
+}
+
+type GlobalAddrs struct {
+    addrs []*GlobalAddr
+    m sync.Mutex
+}
+
+func NewGlobalAddrs() *GlobalAddrs {
+    return &GlobalAddrs{
+	addrs: []*GlobalAddr{},
+    }
+}
+
+func (g *GlobalAddrs)String() string {
+    g.m.Lock()
+    defer g.m.Unlock()
+    gas := []string{}
+    for _, addr := range g.addrs {
+	s := fmt.Sprintf("[%s %v %v]",
+	    addr.addr, time.Since(addr.lastUpdate), addr.remotes)
+	gas = append(gas, s)
+    }
+    return fmt.Sprintf("[globals: %s]", strings.Join(gas, " "))
+}
+
+func (g *GlobalAddrs)List() []string {
+    list := []string{}
+    g.m.Lock()
+    defer g.m.Unlock()
+    for _, addr := range g.addrs {
+	if time.Since(addr.lastUpdate) < 30 * time.Second {
+	    list = append(list, addr.addr)
+	}
+    }
+    return list
+}
+
+func (g *GlobalAddrs)Update(gaddr, raddr string) bool {
+    g.m.Lock()
+    defer g.m.Unlock()
+    for _, addr := range g.addrs {
+	if addr.addr == gaddr {
+	    addr.lastUpdate = time.Now()
+	    for _, r := range addr.remotes {
+		if r == raddr {
+		    return false
+		}
+	    }
+	    addr.remotes = append(addr.remotes, raddr)
+	    return true
+	}
+    }
+    addr := &GlobalAddr{
+	addr: gaddr,
+	remotes: []string{ raddr },
+	lastUpdate: time.Now(),
+    }
+    g.addrs = append(g.addrs, addr)
+    return true
+}
+
 type LocalSocket struct {
     sock *net.UDPConn
     addr string
-    global string
+    globals *GlobalAddrs
     started bool
     running bool
     working bool
@@ -92,7 +157,7 @@ func NewLocalSocket() *LocalSocket {
 	return nil
     }
     s.sock = sock
-    s.global = ""
+    s.globals = NewGlobalAddrs()
     s.created = time.Now()
     s.q_sendmsg = make(chan UDPMessage, 64)
     return s
@@ -109,7 +174,7 @@ func NewConsistLocalSocket(addr string) *LocalSocket {
 	return nil
     }
     s.sock = sock
-    s.global = ""
+    s.globals = NewGlobalAddrs()
     s.created = time.Now()
     s.q_sendmsg = make(chan UDPMessage, 64)
     s.consist = true
@@ -121,21 +186,10 @@ func (s *LocalSocket)Infof(f string, args ...interface{}) {
     logrus.Infof(header + f, args...)
 }
 
-func (s *LocalSocket)UpdateGlobal(global string) bool {
-    updated := false
-    old := ""
-    s.m.Lock()
-    if s.global != global {
-	old = s.global
-	s.global = global
-	updated = old != ""
-    }
-    s.m.Unlock()
-    if updated {
-	s.Infof("update global [%s] to [%s]", old, global)
-    }
-    return updated
+func (s *LocalSocket)UpdateGlobal(global, raddr string) bool {
+    return s.globals.Update(global, raddr)
 }
+
 
 func (s *LocalSocket)String() string {
     s_qlen := fmt.Sprintf("[qlen %d]", len(s.q_sendmsg))
@@ -151,7 +205,7 @@ func (s *LocalSocket)String() string {
 	s_state = "working"
     }
     return fmt.Sprintf("localsocket %v %s %s %s %s",
-	    s.sock.LocalAddr(), s.global,
+	    s.sock.LocalAddr(), s.globals.String(),
 	    s_qlen, s_stats, s_state)
 }
 
@@ -1681,8 +1735,8 @@ func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
 	    // Don't inform retiring socket
 	    continue
 	}
-	if sock.global != "" {
-	    addrs = append(addrs, sock.global)
+	for _, addr := range sock.globals.List() {
+	    addrs = append(addrs, addr)
 	}
     }
     p.m.Unlock()
@@ -1791,7 +1845,7 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
     // recv probe response
     s.working = true
     remote.lastRecvProbe = time.Now()
-    if globaladdr != "" && s.UpdateGlobal(globaladdr) {
+    if globaladdr != "" && s.UpdateGlobal(globaladdr, addr.String()) {
 	p.globalChanged = true
     }
 }
@@ -2081,7 +2135,7 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
 	} else if len(msg) > 7 {
 	    w := strings.Split(string(msg), " ")
 	    // Probe addr
-	    if s.UpdateGlobal(w[1]) {
+	    if s.UpdateGlobal(w[1], addr.String()) {
 		p.globalChanged = true
 	    }
 	}

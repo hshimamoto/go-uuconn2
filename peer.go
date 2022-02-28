@@ -1459,8 +1459,6 @@ type Peer struct {
     d_retire time.Duration
     d_housekeep time.Duration
     max_lsocks int
-    // flag global addr changed
-    globalChanged bool
     rotating bool
     q_sendmsg chan UDPMessage
     m sync.Mutex
@@ -1845,8 +1843,8 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
     // recv probe response
     s.working = true
     remote.lastRecvProbe = time.Now()
-    if globaladdr != "" && s.UpdateGlobal(globaladdr, addr.String()) {
-	p.globalChanged = true
+    if globaladdr != "" {
+	s.UpdateGlobal(globaladdr, addr.String())
     }
 }
 
@@ -2135,8 +2133,8 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
 	} else if len(msg) > 7 {
 	    w := strings.Split(string(msg), " ")
 	    // Probe addr
-	    if s.UpdateGlobal(w[1], addr.String()) {
-		p.globalChanged = true
+	    if len(w) > 0 {
+		s.UpdateGlobal(w[1], addr.String())
 	    }
 	}
 	return
@@ -2542,9 +2540,6 @@ func (p *Peer)Housekeeper_Sockets() {
 	if time.Since(p.sockRetireTime) > p.d_retire {
 	    p.rotating = true
 	}
-	if p.globalChanged {
-	    p.rotating = true
-	}
     }
     if p.rotating {
 	p.RotateLocalSocket()
@@ -2673,7 +2668,7 @@ func (p *Peer)Housekeeper() {
 	// check connections
 	p.Housekeeper_Connections()
 	// checker?
-	if p.globalChanged || time.Since(p.lastCheck) > time.Minute {
+	if time.Since(p.lastCheck) > time.Minute {
 	    p.ProbeToChecker()
 	    p.lastCheck = time.Now()
 	}
@@ -2683,8 +2678,6 @@ func (p *Peer)Housekeeper() {
 	p.Housekeeper_Kick()
 	// sweeper
 	p.Housekeeper_Sweeper()
-	// clear flags
-	p.globalChanged = false
 	p.s_housekeep++
 	time.Sleep(p.d_housekeep)
     }

@@ -1407,7 +1407,6 @@ type Peer struct {
     max_lsocks int
     // flag global addr changed
     globalChanged bool
-    needInform bool
     rotating bool
     q_sendmsg chan UDPMessage
     m sync.Mutex
@@ -1559,7 +1558,6 @@ func (p *Peer)FindConnection(peerid uint32) *Connection {
     // TODO start here?
     go c.Run(p.q_sendmsg)
     p.conns = append(p.conns, c)
-    p.needInform = true
     return c
 }
 
@@ -1795,7 +1793,6 @@ func (p *Peer)UDP_handler_Probe(s *LocalSocket, addr *net.UDPAddr, spid, dpid ui
     remote.lastRecvProbe = time.Now()
     if globaladdr != "" && s.UpdateGlobal(globaladdr) {
 	p.globalChanged = true
-	p.needInform = true
     }
 }
 
@@ -2086,7 +2083,6 @@ func (p *Peer)UDP_handler(s *LocalSocket, addr *net.UDPAddr, msg []byte) {
 	    // Probe addr
 	    if s.UpdateGlobal(w[1]) {
 		p.globalChanged = true
-		p.needInform = true
 	    }
 	}
 	return
@@ -2635,7 +2631,6 @@ func (p *Peer)Housekeeper() {
 	p.Housekeeper_Sweeper()
 	// clear flags
 	p.globalChanged = false
-	p.needInform = false
 	p.s_housekeep++
 	time.Sleep(p.d_housekeep)
     }

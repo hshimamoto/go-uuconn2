@@ -66,10 +66,14 @@ func (s *LocalSocketStats)Add(src *LocalSocketStats) {
     s.s_senderr += src.s_senderr
 }
 
-type GlobalAddr struct {
+type RemoteAddr struct {
     addr string
-    remotes []string
     lastUpdate time.Time
+}
+
+type GlobalAddr struct {
+    RemoteAddr
+    remotes []string
 }
 
 type GlobalAddrs struct {
@@ -122,11 +126,10 @@ func (g *GlobalAddrs)Update(gaddr, raddr string) bool {
 	    return true
 	}
     }
-    addr := &GlobalAddr{
-	addr: gaddr,
-	remotes: []string{ raddr },
-	lastUpdate: time.Now(),
-    }
+    addr := &GlobalAddr{}
+    addr.addr = gaddr
+    addr.lastUpdate = time.Now()
+    addr.remotes = []string{ raddr }
     g.addrs = append(g.addrs, addr)
     return true
 }
@@ -950,11 +953,6 @@ func (st *Stream)Destroy() {
 func (st *Stream)Stat() string {
     stat := st.StatString()
     return fmt.Sprintf("0x%x %s", st.streamid, stat)
-}
-
-type RemoteAddr struct {
-    addr string
-    lastUpdate time.Time
 }
 
 type RemotePeer struct {

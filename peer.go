@@ -487,7 +487,7 @@ func (st *Stream)Infof(f string, args ...interface{}) {
     logrus.Infof(header + f, args...)
 }
 
-func (st *Stream)StatString() string {
+func (st *Stream)StatsString() string {
     s_live := fmt.Sprintf("[live %v]", time.Since(st.createdTime))
     s_rw := fmt.Sprintf("[read %d write %d]",
 	st.s_selfread, st.s_selfwrite)
@@ -949,12 +949,12 @@ func (st *Stream)Destroy() {
     close(st.q_acked)
     close(st.q_flush)
     // show stats
-    stat := st.StatString()
+    stat := st.StatsString()
     st.Infof("total %s", stat)
 }
 
-func (st *Stream)Stat() string {
-    stat := st.StatString()
+func (st *Stream)Stats() string {
+    stat := st.StatsString()
     return fmt.Sprintf("%s:0x%x %s", st.name, st.streamid, stat)
 }
 
@@ -2238,10 +2238,10 @@ func (p *Peer)API_handler_SHOW(conn net.Conn, opts []string) {
     rss := []string{}
     c.m.Lock()
     for _, s := range c.lstreams {
-	lss = append(lss, s.Stat())
+	lss = append(lss, s.Stats())
     }
     for _, s := range c.rstreams {
-	rss = append(rss, s.Stat())
+	rss = append(rss, s.Stats())
     }
     c.m.Unlock()
     ls := ""

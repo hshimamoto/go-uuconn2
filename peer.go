@@ -153,9 +153,9 @@ type LocalSocket struct {
     LocalSocketStats
 }
 
-func NewLocalSocket() *LocalSocket {
+func newLocalSocket(uaddr *net.UDPAddr) *LocalSocket {
     s := &LocalSocket{}
-    sock, err := net.ListenUDP("udp", nil)
+    sock, err := net.ListenUDP("udp", uaddr)
     if err != nil {
 	return nil
     }
@@ -166,21 +166,19 @@ func NewLocalSocket() *LocalSocket {
     return s
 }
 
+func NewLocalSocket() *LocalSocket {
+    return newLocalSocket(nil)
+}
+
 func NewConsistLocalSocket(addr string) *LocalSocket {
-    s := &LocalSocket{}
     uaddr, err := net.ResolveUDPAddr("udp", addr)
     if err != nil {
 	return nil
     }
-    sock, err := net.ListenUDP("udp", uaddr)
-    if err != nil {
-	return nil
+    s := newLocalSocket(uaddr)
+    if s != nil {
+	s.consist = true
     }
-    s.sock = sock
-    s.globals = NewGlobalAddrs()
-    s.created = time.Now()
-    s.q_sendmsg = make(chan UDPMessage, 64)
-    s.consist = true
     return s
 }
 

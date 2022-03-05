@@ -1741,9 +1741,6 @@ func (p *Peer)InformTo(addr *net.UDPAddr, dstpid uint32) {
 	}
     }
     p.m.Unlock()
-    if len(addrs) == 1 {
-	return
-    }
     msg := []byte(fmt.Sprintf("infoSSSSDDDD%s", strings.Join(addrs, " ")))
     binary.LittleEndian.PutUint32(msg[4:], p.peerid)
     binary.LittleEndian.PutUint32(msg[8:], dstpid)
@@ -1782,10 +1779,6 @@ func (p *Peer)SendPeerInfo() {
 		if time.Since(addr.lastUpdate) < 30 * time.Second {
 		    addrs = append(addrs, addr.addr)
 		}
-	    }
-	    if len(addrs) == 1 {
-		// something wrong
-		continue
 	    }
 	    msg := []byte(fmt.Sprintf("peerSSSSDDDDPPPP%s", strings.Join(addrs, " ")))
 	    binary.LittleEndian.PutUint32(msg[12:], peerid)
@@ -1904,13 +1897,13 @@ func (p *Peer)UDP_handler_Inform(s *LocalSocket, addr *net.UDPAddr, spid, dpid u
 	return
     }
     remotes := strings.Split(string(data), " ")
+    hostname := remotes[0]
+    // TODO avoid direct access
+    remote.hostname = hostname
     if len(remotes) < 2 {
 	// ignore
 	return
     }
-    hostname := remotes[0]
-    // TODO avoid direct access
-    remote.hostname = hostname
     remotes = remotes[1:]
     for _, r := range remotes {
 	remote.Update(r)

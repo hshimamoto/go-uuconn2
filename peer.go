@@ -188,6 +188,9 @@ func (s *LocalSocket)Infof(f string, args ...interface{}) {
 }
 
 func (s *LocalSocket)UpdateGlobal(global, raddr string) bool {
+    if s.consist {
+	return false
+    }
     return s.globals.Update(global, raddr)
 }
 

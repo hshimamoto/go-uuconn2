@@ -428,6 +428,7 @@ func NewBuffer() *Buffer {
 }
 
 type Stream struct {
+    name string
     streamid uint32
     lopen, ropen bool
     createdTime time.Time
@@ -467,8 +468,9 @@ type Stream struct {
     s_bufszdown, s_bufszup uint32
 }
 
-func NewStream(streamid uint32) *Stream {
+func NewStream(name string, streamid uint32) *Stream {
     st := &Stream{
+	name: name,
 	streamid: streamid,
 	createdTime: time.Now(),
     }
@@ -481,7 +483,7 @@ func NewStream(streamid uint32) *Stream {
 }
 
 func (st *Stream)Infof(f string, args ...interface{}) {
-    header := fmt.Sprintf("stream:0x%x ", st.streamid)
+    header := fmt.Sprintf("stream:%s:0x%x ", st.name, st.streamid)
     logrus.Infof(header + f, args...)
 }
 
@@ -953,7 +955,7 @@ func (st *Stream)Destroy() {
 
 func (st *Stream)Stat() string {
     stat := st.StatString()
-    return fmt.Sprintf("0x%x %s", st.streamid, stat)
+    return fmt.Sprintf("%s:0x%x %s", st.name, st.streamid, stat)
 }
 
 type RemotePeer struct {
@@ -1117,7 +1119,8 @@ func (c *Connection)NewLocalStream() *Stream {
     streamid := c.streamid
     c.streamid++
     c.m.Unlock()
-    st := NewStream(streamid)
+    name := fmt.Sprintf("L%x", c.remote.peerid)
+    st := NewStream(name, streamid)
     c.m.Lock()
     c.lstreams = append(c.lstreams, st)
     c.m.Unlock()
@@ -1144,7 +1147,8 @@ func (c *Connection)NewRemoteStream(rid uint32) (*Stream, bool) {
 	    return st, false
 	}
     }
-    st := NewStream(rid)
+    name := fmt.Sprintf("R%x", c.remote.peerid)
+    st := NewStream(name, rid)
     c.rstreams = append(c.rstreams, st)
     return st, true
 }

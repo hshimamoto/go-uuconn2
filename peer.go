@@ -436,6 +436,8 @@ type Stream struct {
     reader_dead bool
     writer_dead bool
     main_dead bool
+    // configurable
+    maxBuffSize, minBuffSize uint32
     // outgoing block
     oblk *DataBlock
     oblkacks uint32 // number of acks in this block
@@ -474,6 +476,8 @@ func NewStream(name string, streamid uint32) *Stream {
 	streamid: streamid,
 	createdTime: time.Now(),
     }
+    st.maxBuffSize = BlockBufferSize
+    st.minBuffSize = BlockBufferSize / 8
     st.oblk = NewDataBlock(fmt.Sprintf("oblk st:0x%x ", streamid))
     st.iblk = NewDataBlock(fmt.Sprintf("iblk st:0x%x ", streamid))
     st.q_work = make(chan bool, 64)
@@ -560,22 +564,22 @@ func (st *Stream)SendBlock(code string, q chan []byte) {
 	st.m.Lock()
 	if st.oblkacks > 1 {
 	    st.s_bufszdown++
-	    if st.oblkNextMaxSize > BlockBufferSize / 8 {
+	    if st.oblkNextMaxSize > st.minBuffSize {
 		st.oblkNextMaxSize -= st.oblkNextMaxSize / 8
 	    }
-	    if st.oblkNextMaxSize < BlockBufferSize / 8 {
-		st.oblkNextMaxSize = BlockBufferSize / 8
+	    if st.oblkNextMaxSize < st.minBuffSize {
+		st.oblkNextMaxSize = st.minBuffSize
 	    }
 	}
 	st.m.Unlock()
     } else {
 	st.m.Lock()
 	st.s_bufszup++
-	if st.oblkNextMaxSize > BlockBufferSize / 8 {
+	if st.oblkNextMaxSize < st.maxBuffSize {
 	    st.oblkNextMaxSize += st.oblkNextMaxSize / 8
 	}
-	if st.oblkNextMaxSize > BlockBufferSize {
-	    st.oblkNextMaxSize = BlockBufferSize
+	if st.oblkNextMaxSize > st.maxBuffSize {
+	    st.oblkNextMaxSize = st.maxBuffSize
 	}
 	st.m.Unlock()
     }

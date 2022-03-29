@@ -2676,6 +2676,21 @@ func (p *Peer)Housekeeper() {
 	p.SendPeerInfo()
 	// kick streams
 	p.Housekeeper_Kick()
+	// remotepeer check
+	p.m.Lock()
+	for _, peer := range p.peers {
+	    // check all remotes
+	    peer.m.Lock()
+	    remotes := []*RemoteAddr{}
+	    for _, r := range peer.remotes {
+		if time.Since(r.lastUpdate) < 5 * time.Minute {
+		    remotes = append(remotes, r)
+		}
+	    }
+	    peer.remotes = remotes
+	    peer.m.Unlock()
+	}
+	p.m.Unlock()
 	// sweeper
 	p.Housekeeper_Sweeper()
 	p.s_housekeep++
